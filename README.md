@@ -13,11 +13,11 @@ into [SEEA Ecosystem Accounting](https://seea.un.org/ecosystem-accounting)
 - The monetary ecosystem asset account (Table 10.1)
 
 **Only `stsim` is required.** `stsimsf` is read opportunistically at
-run time if present in the scenario's pipeline — see
+run time if present in the scenario's pipeline, see
 [Stocks and flows are optional](#stocks-and-flows-are-optional) below.
 
 All accounting logic is delegated to
-[`strategicc`](https://pypi.org/project/strategicc/), a pip package —
+[`strategicc`](https://pypi.org/project/strategicc/), a pip package,
 this repo is a thin adapter that translates ST-Sim's own output
 datasheets into the shapes `strategicc.accounting.seea.SEEAAccount`
 already expects, and translates the results back into SyncroSim
@@ -29,14 +29,14 @@ in `strategicc`, not here.
 This package was drafted against general SyncroSim/ApexRMS
 documentation, then corrected once against `ApexRMS/helloworld`'s real
 `package.xml` (the reference example used across ApexRMS's own package
-ecosystem, including `stsimsf`) — that caught and fixed two real
+ecosystem, including `stsimsf`), that caught and fixed two real
 structural errors: columns were incorrectly wrapped in a `<columns>`
 tag that doesn't exist in the real schema (they go directly under
 `<dataSheet>`), and the transformer used an unconfirmed
 `programName="Python"` attribute instead of the real
 `condaEnv` + `programArguments` pattern. `stsimsf`'s own `package.xml`
 itself could not be fetched directly (blocked/not indexed at draft
-time) — only `helloworld`'s was accessible, used here as the best
+time), only `helloworld`'s was accessible, used here as the best
 available same-org reference. The `<dependencies>` tag declaring
 `stsim` as a required base package is still unconfirmed syntax, flagged
 inline in `package.xml`; SyncroSim's Package Manager should simply not
@@ -45,7 +45,7 @@ should still be checked against a real add-on package before release.
 
 Beyond that, this package was built and unit-tested in an environment
 without SyncroSim Core installed (only `pysyncrosim`, the Python
-client, was available — SyncroSim Core itself is a separate download
+client, was available, SyncroSim Core itself is a separate download
 from syncrosim.com). Concretely, that means:
 
 - **Tested**: all the translation logic (`stsimSEEA_transformer.py`),
