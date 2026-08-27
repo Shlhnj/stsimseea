@@ -1,0 +1,261 @@
+<!--
+stsimSEEA package.xml
+======================
+SyncroSim add-on package that transforms ST-Sim (and, optionally,
+ST-Sim Stocks and Flows) output into SEEA Ecosystem Accounting (SEEA
+EA) tables: the ecosystem extent account (Table 4.1), the physical and
+monetary ecosystem services flow accounts as supply/use tables
+(Tables 7.1a/b, 9.1a/b), and the monetary ecosystem asset account
+(Table 10.1).
+
+Dependency model (the point of this file):
+  - REQUIRED: stsim (the base package). Without it there is nothing to
+    account for — extent and transitions come entirely from stsim's
+    own output datasheets.
+  - NOT required, read opportunistically at run time: stsimsf (Stocks
+    and Flows). If a scenario's pipeline includes stsimsf and its
+    SF_OutputStock datasheet has rows, stsimSEEA uses it to value any
+    ecosystem service the compiler chose to price from a stock
+    quantity. If absent, those specific service rows value at 0 (with
+    a clear message) — everything else in the account (extent,
+    transition matrix, area-priced services, the monetary asset
+    account structure itself) is entirely unaffected. See
+    EcosystemServices datasheet StockTypeId column below.
+
+This file defines ONLY the datasheets stsimSEEA itself owns — the
+ecosystem-services/valuation inputs SEEA needs that stsim has no
+concept of, and stsimSEEA's own output tables. It reads stsim's (and
+optionally stsimsf's) existing datasheets directly; it does not
+redefine them here.
+-->
+<package name="stsimSEEA" displayName="SEEA Ecosystem Accounting" version="0.1.0"
+         description="Transforms ST-Sim (+ optional ST-Sim Stocks and Flows) output into SEEA Ecosystem Accounting tables."
+         url="https://github.com/Shlhnj/stsimSEEA">
+
+  <transformers>
+
+    <!--
+    Single transformer: reads stsim's (+ optional stsimsf's) output
+    datasheets plus this package's own input datasheets, and produces
+    this package's output datasheets. See stsimSEEA_transformer.py.
+    -->
+    <transformer
+      name="stsimSEEA_Main"
+      displayName="SEEA Ecosystem Accounting"
+      programArguments="stsimSEEA_transformer.py"
+      condaEnv="stsimSEEA.yml"
+      condaEnvVersion="1">
+
+      <!-- This package's own inputs -->
+      <dataSheet name="RunControl"          type="Input"/>
+      <dataSheet name="EcosystemServices"   type="Input"/>
+      <dataSheet name="AssetValuationParams" type="Input"/>
+
+      <!-- This package's outputs -->
+      <dataSheet name="ExtentAccount"                type="Output"/>
+      <dataSheet name="TransitionMatrix"             type="Output"/>
+      <dataSheet name="PhysicalFlowAccountSupply"    type="Output"/>
+      <dataSheet name="PhysicalFlowAccountUse"       type="Output"/>
+      <dataSheet name="MonetaryFlowAccountSupply"    type="Output"/>
+      <dataSheet name="MonetaryFlowAccountUse"       type="Output"/>
+      <dataSheet name="MonetaryAssetAccount"         type="Output"/>
+
+    </transformer>
+
+  </transformers>
+
+  <!-- ============================================================ -->
+  <!-- INPUT DATASHEETS owned by stsimSEEA                          -->
+  <!-- ============================================================ -->
+
+  <dataSheets>
+
+    <dataSheet name="RunControl" displayName="SEEA Run Control" isSingleRow="True">
+        <column name="RunControlID" dataType="Integer" isPrimary="True"/>
+        <column name="ScenarioID" dataType="Integer"/>
+        <!-- If True, look for and use stsimsf's SF_OutputStock output
+             for any EcosystemServices row with a StockTypeId set.
+             If False, all such rows value at 0 regardless of whether
+             stsimsf is actually installed/run — an explicit opt-out,
+             distinct from stsimsf simply being absent. Default True:
+             use it automatically whenever it's genuinely there. -->
+        <column name="IncludeStockFlow" dataType="Boolean" defaultVal="True"
+                displayName="Include Stocks and Flows (if available)"/>
+        <!-- Comma-separated TransitionGroup names (must match
+             stsim_TransitionGroup) to treat as catastrophic losses in
+             the monetary asset account, rather than ordinary
+             reductions. Optional; blank = no catastrophic split. -->
+        <column name="CatastrophicTransitionGroups" dataType="String" isOptional="True"/>
+        <!-- Comma-separated TransitionGroup names to treat as managed
+             (vs. unmanaged) in the extent account's Additions/
+             Reductions split. Optional; blank = undivided. -->
+        <column name="ManagedTransitionGroups" dataType="String" isOptional="True"/>
+    </dataSheet>
+
+    <dataSheet name="EcosystemServices" displayName="Ecosystem Services">
+        <column name="EcosystemServicesID" dataType="Integer" isPrimary="True"/>
+        <column name="ScenarioID" dataType="Integer"/>
+        <!-- StratumID/StateClassID identify which stsim state this
+             service applies to, matching stsim's own convention
+             (a service can be scoped to StateClass alone by leaving
+             StratumID blank, i.e. applies across all strata). -->
+        <column name="StratumID" dataType="Integer" isOptional="True"
+                validationType="Datasheet" formula1="stsim_Stratum"/>
+        <column name="StateClassID" dataType="Integer"
+                validationType="Datasheet" formula1="stsim_StateClass"/>
+        <column name="ServiceName" dataType="String"/>
+        <column name="ServiceType" dataType="String"
+                validationType="List" formula1="Provisioning,Regulating,Cultural"/>
+        <!-- Per-hectare value (Mode A/B) or price-per-physical-unit
+             (Mode C, i.e. StockTypeId set below) -->
+        <column name="ValuePerUnitArea" dataType="Double"/>
+        <column name="Currency" dataType="String"/>
+        <column name="PhysicalUnit" dataType="String" isOptional="True"/>
+        <column name="PhysicalValuePerUnitArea" dataType="Double" isOptional="True"/>
+        <!-- Mode C: name of a stock type defined in stsimsf's
+             SF_StockType datasheet. When set, PhysicalValuePerUnitArea
+             is ignored and the physical quantity is instead read from
+             stsimsf's SF_OutputStock for this class/year (see
+             RunControl.IncludeStockFlow). Left blank = Mode A/B,
+             entirely independent of stsimsf. -->
+        <column name="StockTypeId" dataType="String" isOptional="True"
+                displayName="Stock Type (optional, from stsimsf)"/>
+        <!-- v3.5-equivalent user split, same semantics as
+             strategicc's EcosystemServices.csv UserType/UserShare -->
+        <column name="UserType" dataType="String" isOptional="True"/>
+        <column name="UserShare" dataType="Double" isOptional="True" defaultVal="1.0"/>
+    </dataSheet>
+
+    <dataSheet name="AssetValuationParams" displayName="Asset Valuation Parameters">
+        <column name="AssetValuationParamsID" dataType="Integer" isPrimary="True"/>
+        <column name="ScenarioID" dataType="Integer"/>
+        <!-- Blank StateClassID = the "ALL" default row -->
+        <column name="StateClassID" dataType="Integer" isOptional="True"
+                validationType="Datasheet" formula1="stsim_StateClass"/>
+        <column name="DiscountRate" dataType="Double"/>
+        <column name="AssetLifeYears" dataType="Integer"/>
+        <column name="PriceGrowthRate" dataType="Double" defaultVal="0.0"/>
+        <column name="ConditionProxyStockTypeId" dataType="String" isOptional="True"/>
+        <column name="ConditionReferenceLevel" dataType="Double" isOptional="True"/>
+    </dataSheet>
+
+  </dataSheets>
+
+  <!-- ============================================================ -->
+  <!-- OUTPUT DATASHEETS owned by stsimSEEA                         -->
+  <!-- Shapes mirror strategicc.accounting.seea.SEEAAccount's        -->
+  <!-- already-tested outputs, just flattened into SyncroSim's       -->
+  <!-- row-per-record datasheet convention rather than a MultiIndex. -->
+  <!-- ============================================================ -->
+
+  <dataSheets>
+
+    <dataSheet name="ExtentAccount" displayName="Ecosystem Extent Account (Table 4.1)"
+               hasIteration="True">
+        <column name="ExtentAccountID" dataType="Integer" isPrimary="True"/>
+        <column name="ScenarioID" dataType="Integer"/>
+        <column name="Iteration" dataType="Integer"/>
+        <column name="Period" dataType="String"/>
+        <column name="Entry" dataType="String"
+                validationType="List"
+                formula1="Opening extent,Additions,Reductions,Net change in extent,Closing extent"/>
+        <column name="StateClassID" dataType="Integer"
+                validationType="Datasheet" formula1="stsim_StateClass"/>
+        <column name="Amount" dataType="Double"/>
+    </dataSheet>
+
+    <dataSheet name="TransitionMatrix" displayName="Transition Matrix (Table 4.2)"
+               hasIteration="True">
+        <column name="TransitionMatrixID" dataType="Integer" isPrimary="True"/>
+        <column name="ScenarioID" dataType="Integer"/>
+        <column name="Iteration" dataType="Integer"/>
+        <column name="FromStateClassID" dataType="Integer"
+                validationType="Datasheet" formula1="stsim_StateClass"/>
+        <column name="ToStateClassID" dataType="Integer"
+                validationType="Datasheet" formula1="stsim_StateClass"/>
+        <column name="Area" dataType="Double"/>
+    </dataSheet>
+
+    <dataSheet name="PhysicalFlowAccountSupply" displayName="Physical Flow Account — Supply (Table 7.1a)"
+               hasIteration="True" hasTimestep="True">
+        <column name="PhysicalFlowAccountSupplyID" dataType="Integer" isPrimary="True"/>
+        <column name="ScenarioID" dataType="Integer"/>
+        <column name="Iteration" dataType="Integer"/>
+        <column name="Timestep" dataType="Integer"/>
+        <column name="StateClassID" dataType="Integer"
+                validationType="Datasheet" formula1="stsim_StateClass"/>
+        <column name="ServiceName" dataType="String"/>
+        <column name="Unit" dataType="String"/>
+        <column name="Quantity" dataType="Double"/>
+    </dataSheet>
+
+    <dataSheet name="PhysicalFlowAccountUse" displayName="Physical Flow Account — Use (Table 7.1b)"
+               hasIteration="True" hasTimestep="True">
+        <column name="PhysicalFlowAccountUseID" dataType="Integer" isPrimary="True"/>
+        <column name="ScenarioID" dataType="Integer"/>
+        <column name="Iteration" dataType="Integer"/>
+        <column name="Timestep" dataType="Integer"/>
+        <column name="UserType" dataType="String"/>
+        <column name="ServiceName" dataType="String"/>
+        <column name="Unit" dataType="String"/>
+        <column name="Quantity" dataType="Double"/>
+    </dataSheet>
+
+    <dataSheet name="MonetaryFlowAccountSupply" displayName="Monetary Flow Account — Supply (Table 9.1a)"
+               hasIteration="True" hasTimestep="True">
+        <column name="MonetaryFlowAccountSupplyID" dataType="Integer" isPrimary="True"/>
+        <column name="ScenarioID" dataType="Integer"/>
+        <column name="Iteration" dataType="Integer"/>
+        <column name="Timestep" dataType="Integer"/>
+        <column name="StateClassID" dataType="Integer"
+                validationType="Datasheet" formula1="stsim_StateClass"/>
+        <column name="ServiceName" dataType="String"/>
+        <column name="Value" dataType="Double"/>
+    </dataSheet>
+
+    <dataSheet name="MonetaryFlowAccountUse" displayName="Monetary Flow Account — Use (Table 9.1b)"
+               hasIteration="True" hasTimestep="True">
+        <column name="MonetaryFlowAccountUseID" dataType="Integer" isPrimary="True"/>
+        <column name="ScenarioID" dataType="Integer"/>
+        <column name="Iteration" dataType="Integer"/>
+        <column name="Timestep" dataType="Integer"/>
+        <column name="UserType" dataType="String"/>
+        <column name="ServiceName" dataType="String"/>
+        <column name="Value" dataType="Double"/>
+    </dataSheet>
+
+    <dataSheet name="MonetaryAssetAccount" displayName="Monetary Ecosystem Asset Account (Table 10.1)"
+               hasIteration="True">
+        <column name="MonetaryAssetAccountID" dataType="Integer" isPrimary="True"/>
+        <column name="ScenarioID" dataType="Integer"/>
+        <column name="Iteration" dataType="Integer"/>
+        <column name="Period" dataType="String"/>
+        <column name="Entry" dataType="String"
+                validationType="List"
+                formula1="Opening value,Ecosystem enhancement,Ecosystem degradation,Ecosystem conversions — additions,Ecosystem conversions — reductions,Other changes in volume — catastrophic losses,Other changes in volume — reappraisals,Revaluations,Net change in value,Closing value"/>
+        <column name="StateClassID" dataType="Integer"
+                validationType="Datasheet" formula1="stsim_StateClass"/>
+        <column name="Value" dataType="Double"/>
+    </dataSheet>
+
+  </dataSheets>
+
+  <!--
+  UNCONFIRMED: the exact tag/attribute for declaring a required base
+  package was not found in any ApexRMS source available at draft time
+  (only the CONCEPT — that stsimsf declares itself an add-on to stsim —
+  was confirmed, not the XML syntax). Verify this against a real
+  ApexRMS add-on package.xml (e.g. stsimBurnP3Plus's, once accessible)
+  before relying on it; if wrong, SyncroSim's Package Manager should
+  simply not enforce the dependency, so this degrades safely rather
+  than breaking anything, but it should still be corrected.
+  -->
+  <dependencies>
+    <dependency name="stsim"/>
+    <!-- stsimsf intentionally NOT listed as a dependency — it is read
+         opportunistically at run time if present, never required to
+         install or run this package. See RunControl.IncludeStockFlow
+         and stsimSEEA_transformer.py's read_stockflow_output(). -->
+  </dependencies>
+
+</package>
