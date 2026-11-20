@@ -1,4 +1,4 @@
-# Example: JEM Demak mangrove coast (validation 2015 to 2022)
+# Example: Demak mangrove coast (validation 2015 to 2022)
 
 SEEA-Sim inputs for the JEM ST-Sim model of the Demak coast (7 classes, 20 transition types, carbon stocks AGB, BGB and Soil). Names match that library; for another model, change the names and values.
 
