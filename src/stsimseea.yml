@@ -1,0 +1,9 @@
+name: stsimseea
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.11
+  - pandas>=2.2
+  - numpy
+  - pysyncrosim>=2.1
