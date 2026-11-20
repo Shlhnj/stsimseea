@@ -1,0 +1,10 @@
+ServiceId,StratumId,StateClassId,Basis,StockGroupId,FlowGroupId,Coefficient
+Capture fisheries,,Water_body:All,Area,,,150
+Crop provisioning,,Cropland:All,Area,,,5000
+Aquaculture produce,,Aquaculture:All,Area,,,800
+Fishery nursery,,Mangrove:All,Area,,,1
+Coastal protection,,Mangrove:All,Area,,,1
+Coastal protection,,Tidal_flat:All,Area,,,0.3333
+Global climate regulation,,,Flow group,,SEEA_NPP,3.6667
+Recreation (ecotourism),,Mangrove:All,Area,,,1
+Biodiversity habitat,,Other_vegetation:All,Area,,,1

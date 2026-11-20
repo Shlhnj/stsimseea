@@ -1,0 +1,5 @@
+StateClassId,DiscountRate,AssetLife
+,0.03,100
+Settlement:All,0.03,50
+Cropland:All,0.03,50
+Aquaculture:All,0.03,30

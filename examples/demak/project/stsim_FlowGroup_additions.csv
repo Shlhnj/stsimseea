@@ -1,0 +1,3 @@
+Name,Description,Units
+SEEA_all_carbon_flows,Every carbon flow type once (used by the SEEA-Sim carbon accounts),MgC
+SEEA_NPP,NPP flows from the atmosphere into biomass (GPP flow type),MgC
