@@ -1,9 +1,0 @@
-Name,ServiceType,Units,Description
-Capture Fisheries,Provisioning,kg,Wild fish catch supported by coastal water (150 kg/ha/yr)
-Crop Provisioning,Provisioning,kg,Rice and other crops (5000 kg/ha/yr)
-Aquaculture Fishery,Provisioning,kg,Pond fish and shrimp (800 kg/ha/yr)
-Fishery Nursery,Provisioning,ha,Mangrove area serving as nursery habitat
-Coastal Protection,Regulating,ha mangrove-equivalent,Wave and erosion protection; tidal flat counts as 1/3 of mangrove
-Carbon Sequestration,Regulating,MgC,Carbon taken up by vegetation: NPP flows from the atmosphere (flow group SEEA_NPP)
-Ecotourism,Cultural,ha,Mangrove area used for ecotourism
-Biodiversity Habitat,Cultural,ha,Semi-natural vegetation habitat
