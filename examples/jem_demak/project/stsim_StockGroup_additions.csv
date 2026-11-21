@@ -1,7 +1,0 @@
-Name,Description,Units
-SEEA_AGB,SEEA-Sim pool: aboveground biomass (only AGB),MgC
-SEEA_BGB,SEEA-Sim pool: belowground biomass (only BGB),MgC
-SEEA_Soil,SEEA-Sim pool: soil organic carbon (only Soil),MgC
-SEEA_Atmosphere,SEEA-Sim external: atmosphere,MgC
-SEEA_Water,SEEA-Sim external: adjacent water,MgC
-SEEA_Buried,SEEA-Sim external: permanent burial,MgC
