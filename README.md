@@ -85,7 +85,7 @@ src/seea_accounts.py   accounting core (pandas only, no SyncroSim needed)
 src/stsimseea.yml      conda environment
 tests/test_accounts.py synthetic ST-Sim-like run; checks every account reconciles
 tests/test_seealand.py comparison with the UN SEEALand stylised example
-examples/jem_demak/    worked example: input tables for the JEM Demak model + loader script
+examples/demak/        worked example: input tables for the JEM Demak model + loader script (see examples/README.md)
 ```
 
 Run the tests with `python -m pytest tests -q`.

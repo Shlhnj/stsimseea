@@ -1,12 +1,17 @@
 """
-Add the SEEA-Sim example inputs to an existing ST-Sim library.
+Add the SEEA-Sim example inputs to an ST-Sim library.
+
+Called by build_and_test.py when a 4_seeasim folder sits next to it, or on
+its own for a library that already exists:
 
     python add_seeasim.py --library JEM_cycle1.ssim --scenario "Cycle1 2015 BaU"
     python add_seeasim.py ... --ssim "C:\\Program Files\\SyncroSim Studio"
 
-Needs the stsimseea package installed in SyncroSim (File > Local Packages).
 What it does, in order:
-  1. adds the stsimseea package to the library
+  0. installs stsimseea from the .ssimpkg in this folder if SyncroSim does not
+     have that version yet
+  1. adds the stsimseea package to the library and turns on 'Use conda'
+     for it (SEEA-Sim's script runs in its own conda environment)
   2. project: adds the SEEA stock and flow groups (only names not there yet)
      and the Ecosystem Service list
   3. scenario: adds the stock/flow group memberships (keeps existing rows),
@@ -36,7 +41,13 @@ LIST_CODES = {
 }
 
 
+_EXTERNAL_LOG = None
+
+
 def log(level, msg):
+    if _EXTERNAL_LOG is not None:
+        _EXTERNAL_LOG(level, "seeasim: " + msg)
+        return
     line = f"[{level}] {msg}"
     print(line)
     LOG.append(line)
@@ -55,6 +66,8 @@ def match_columns(df, obj, name):
     try:
         real = list(obj.datasheets(name, empty=True).columns)
     except Exception:
+        return df
+    if not real:
         return df
     lookup = {norm(c): c for c in real}
     keep = {c: lookup[norm(c)] for c in df.columns if norm(c) in lookup}
@@ -141,23 +154,71 @@ def set_pipeline(scn):
                 "1 ST-Sim, 2 SEEA-Sim Accounts")
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--library", required=True)
-    ap.add_argument("--scenario", required=True)
-    ap.add_argument("--project", default="Definitions")
-    ap.add_argument("--ssim", default=None)
-    a = ap.parse_args()
+def package_file_version():
+    """(path, version) of the stsimseea-*.ssimpkg next to this script, or (None, None)."""
+    files = sorted(glob.glob(os.path.join(HERE, "stsimseea-*.ssimpkg")))
+    if not files:
+        return None, None
+    pkg = files[-1]
+    return pkg, os.path.basename(pkg)[len("stsimseea-"):-len(".ssimpkg")].replace("-", ".")
 
-    session = ps.Session(location=a.ssim) if a.ssim else ps.Session()
-    lib = ps.library(name=a.library, session=session)
+
+def ensure_package(session):
+    """Install stsimseea from the .ssimpkg next to this script if that version is not installed.
+    Returns the version the library should use (None = whatever is installed)."""
+    pkg, want = package_file_version()
+    if pkg is None:
+        log("WARN", "no stsimseea-*.ssimpkg in this folder; using the newest SEEA-Sim installed in SyncroSim")
+        return None
     try:
-        lib.add_packages("stsimseea")
-        log("OK", "package stsimseea added to the library")
+        inst = session.packages()
+        have = set(inst.loc[inst["Name"] == "stsimseea", "Version"].astype(str))
+        if want in have:
+            log("OK", f"SEEA-Sim {want} already installed (installed versions: {sorted(have)})")
+            return want
     except Exception as e:
-        log("WARN", f"add_packages(stsimseea): {str(e)[:300]} (fine if it is already in the library)")
-    proj = lib.projects(name=a.project)
-    scn = proj.scenarios(name=a.scenario)
+        log("WARN", f"could not list installed packages ({str(e)[:200]}); installing anyway")
+    try:
+        session.install_packages(pkg)
+        log("OK", f"installed {os.path.basename(pkg)}")
+    except Exception as e:
+        log("FAIL", f"could not install {os.path.basename(pkg)}: {str(e)[:300]}. "
+                    "Install it in Studio: File > Local Packages > Install from File")
+    return want
+
+
+def add_to_library(session, lib, proj, scn, external_log=None):
+    """Everything in steps 0 to 4 on an open library, project and scenario."""
+    global _EXTERNAL_LOG
+    _EXTERNAL_LOG = external_log
+    want = ensure_package(session)
+    try:
+        # Name the version: with several versions installed, pysyncrosim would
+        # otherwise take whichever SyncroSim lists last, which may be an older one.
+        if want:
+            lib.add_packages("stsimseea", versions=want)
+        else:
+            lib.add_packages("stsimseea")
+    except Exception as e:
+        log("WARN", f"add_packages(stsimseea {want or ''}): {str(e)[:300]}")
+    try:
+        used = lib.packages
+        used = set(used.loc[used["Name"] == "stsimseea", "Version"].astype(str))
+    except Exception:
+        used = set()
+    if want and used and want not in used:
+        log("FAIL", f"library uses SEEA-Sim {sorted(used)}, not {want}. Uninstall the other version in "
+                    "Studio (File > Local Packages) and run this again")
+    else:
+        log("OK", f"library uses SEEA-Sim {sorted(used) or want}")
+    try:
+        # SEEA-Sim's transformer runs in its own conda environment; without this
+        # the stage ends at once with no output ("'Use conda' property is disabled").
+        lib.use_conda = True
+        log("OK", "library set to use conda (needed by SEEA-Sim)")
+    except Exception as e:
+        log("WARN", f"could not turn on 'Use conda' ({str(e)[:200]}); turn it on in Studio: "
+                    "Library properties > Options > Use conda")
 
     add_new_names(proj, "stsim_StockGroup", os.path.join(P_DIR, "stsim_StockGroup_additions.csv"))
     add_new_names(proj, "stsim_FlowGroup", os.path.join(P_DIR, "stsim_FlowGroup_additions.csv"))
@@ -173,6 +234,22 @@ def main():
     for path in sorted(glob.glob(os.path.join(S_DIR, "stsimseea_*.csv"))):
         save(scn, os.path.splitext(os.path.basename(path))[0], read_csv(path))
     set_pipeline(scn)
+    _EXTERNAL_LOG = None
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--library", required=True)
+    ap.add_argument("--scenario", required=True)
+    ap.add_argument("--project", default="Definitions")
+    ap.add_argument("--ssim", default=None)
+    a = ap.parse_args()
+
+    session = ps.Session(location=a.ssim) if a.ssim else ps.Session()
+    lib = ps.library(name=a.library, session=session)
+    proj = lib.projects(name=a.project)
+    scn = proj.scenarios(name=a.scenario)
+    add_to_library(session, lib, proj, scn)
 
     with open(os.path.join(HERE, "add_seeasim_log.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(LOG))
