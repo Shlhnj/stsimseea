@@ -1,0 +1,9 @@
+FlowTypeId,FlowGroupId,Value
+GPP,SEEA_all_carbon_flows,
+Emission,SEEA_all_carbon_flows,
+Humification,SEEA_all_carbon_flows,
+Export,SEEA_all_carbon_flows,
+Soil Export,SEEA_all_carbon_flows,
+Burial,SEEA_all_carbon_flows,
+Sedimentation,SEEA_all_carbon_flows,
+GPP,SEEA_NPP,

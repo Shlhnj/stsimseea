@@ -132,8 +132,9 @@ def main():
         value = sa.service_value(supply, ptbl)
         if value is not None:
             save(scn, "OutputServiceValue", sa._finish(value.copy()), out_cols)
+        cond = read(scn, f"{PKG}_ConditionChange")
         assets = sa.asset_account(comp, state, supply, ptbl, read(scn, f"{PKG}_AssetValuation"),
-                                  by_stratum)
+                                  by_stratum, condition=cond if not cond.empty else None)
         if assets is not None:
             save(scn, "OutputAssetAccount", assets,
                  ["Iteration", *period_cols, "StateClassId", "Entry", "Amount"])

@@ -11,7 +11,7 @@
 
   Run it as a second pipeline stage after stsim_Runtime.
 -->
-<package name="stsimseea" displayName="SEEA-Sim" description="SEEA Ecosystem Accounting tables from ST-Sim output" version="1.0.2" minSyncroSimVersion="3.1.14" url="https://github.com/Shlhnj/stsimseea">
+<package name="stsimseea" displayName="SEEA-Sim" description="SEEA Ecosystem Accounting tables from ST-Sim output" version="1.0.3" minSyncroSimVersion="3.1.14" url="https://github.com/Shlhnj/stsimseea">
 
   <builtFor package="stsim" version="4.5.4"/>
 
@@ -72,7 +72,14 @@
   <dataSheet name="AssetValuation" displayName="Asset Valuation">
     <column name="StateClassId" displayName="State Class" dataType="Integer" validationType="Datasheet" formula1="stsim_StateClass" isOptional="True"/>
     <column name="DiscountRate" displayName="Discount Rate" dataType="Double" validationType="Decimal" validationCondition="GreaterEqual" formula1="0.0" allowDbNull="False"/>
-    <column name="AssetLife" displayName="Asset Life (years)" dataType="Integer" validationType="WholeNumber" validationCondition="Greater" formula1="0" allowDbNull="False"/>
+    <column name="AssetLifeYears" displayName="Asset Life (years)" dataType="Integer" validationType="WholeNumber" validationCondition="Greater" formula1="0" allowDbNull="False"/>
+  </dataSheet>
+
+  <dataSheet name="ConditionChange" displayName="Condition Change">
+    <column name="StateClassId" displayName="State Class" dataType="Integer" validationType="Datasheet" formula1="stsim_StateClass" allowDbNull="False"/>
+    <column name="OpeningTimestep" displayName="Opening" dataType="Integer" format="d" isOptional="True"/>
+    <column name="ClosingTimestep" displayName="Closing" dataType="Integer" format="d" isOptional="True"/>
+    <column name="Change" displayName="Change in condition index" dataType="Double" allowDbNull="False"/>
   </dataSheet>
 
   <!-- ===================== Outputs ===================== -->
@@ -169,6 +176,7 @@
       <dataSheet name="ServiceSupply" type="Input"/>
       <dataSheet name="ServicePrice" type="Input"/>
       <dataSheet name="AssetValuation" type="Input"/>
+      <dataSheet name="ConditionChange" type="Input"/>
       <dataSheet name="OutputExtent" type="Output"/>
       <dataSheet name="OutputChangeMatrix" type="Output"/>
       <dataSheet name="OutputCarbonStock" type="Output"/>
@@ -198,6 +206,7 @@
         <item name="ServiceSupply"/>
         <item name="ServicePrice"/>
         <item name="AssetValuation"/>
+        <item name="ConditionChange"/>
       </group>
       <group name="Results">
         <item name="OutputExtent"/>

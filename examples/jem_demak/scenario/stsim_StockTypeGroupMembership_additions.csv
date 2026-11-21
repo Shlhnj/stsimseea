@@ -1,0 +1,7 @@
+StockTypeId,StockGroupId,Value
+AGB,SEEA_AGB,
+BGB,SEEA_BGB,
+Soil,SEEA_Soil,
+Atmosphere,SEEA_Atmosphere,
+Water,SEEA_Water,
+Buried,SEEA_Buried,

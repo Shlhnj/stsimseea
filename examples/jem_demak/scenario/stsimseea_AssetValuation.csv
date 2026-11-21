@@ -1,0 +1,9 @@
+StateClassId,DiscountRate,AssetLifeYears
+,0.03,100
+Water_body:All,0.03,100
+Tidal_flat:All,0.03,100
+Mangrove:All,0.03,100
+Other_vegetation:All,0.03,100
+Settlement:All,0.03,50
+Cropland:All,0.03,50
+Aquaculture:All,0.03,30

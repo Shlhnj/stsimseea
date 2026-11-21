@@ -165,8 +165,8 @@ PRICES = pd.DataFrame([
     dict(ServiceId="Aquaculture produce", Timestep=None, Price=50.0),
     dict(ServiceId="Carbon sequestration", Timestep=None, Price=10.0),
 ])
-VAL = pd.DataFrame([dict(StateClassId=None, DiscountRate=0.05, AssetLife=20),
-                    dict(StateClassId="Mangrove", DiscountRate=0.03, AssetLife=30)])
+VAL = pd.DataFrame([dict(StateClassId=None, DiscountRate=0.05, AssetLifeYears=20),
+                    dict(StateClassId="Mangrove", DiscountRate=0.03, AssetLifeYears=30)])
 
 
 def test_services_and_asset_account():

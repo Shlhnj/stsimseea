@@ -509,6 +509,8 @@ ASSET_ENTRIES = [
     "Ecosystem conversions: additions",
     "Ecosystem conversions: reductions",
     "Catastrophic losses",
+    "Upward reappraisals",
+    "Downward reappraisals",
     "Other changes in volume n.e.c.",
     "Revaluations",
     "Net change in value",
@@ -516,28 +518,68 @@ ASSET_ENTRIES = [
 ]
 
 
-def asset_account(comp, state, supply, prices_tbl, valuation, by_stratum=False, log=None):
+def condition_lookup(condition: pd.DataFrame | None):
     """
-    Net present value of expected ecosystem service flows (SEEA EA ch. 10).
-    Per class and year, the annual value per area unit is
-        v = sum over services of (supply / class area) x price
-    and the asset value per area unit is v x annuity(r, L), i.e. today's
-    flow is assumed to continue for the asset life.
+    condition: StateClassId, optional OpeningTimestep/ClosingTimestep, Change.
+    Returns f(class, o, c) -> change or None. A row for the exact period wins
+    over a row with no period.
+    """
+    if condition is None or condition.empty:
+        return lambda cls, o, c: None
+    d = condition.copy()
+    for col in ("OpeningTimestep", "ClosingTimestep"):
+        if col not in d.columns:
+            d[col] = np.nan
+    exact, anyp = {}, {}
+    for r in d.itertuples():
+        if pd.notna(r.OpeningTimestep) and pd.notna(r.ClosingTimestep):
+            exact[(r.StateClassId, int(r.OpeningTimestep), int(r.ClosingTimestep))] = float(r.Change)
+        else:
+            anyp[r.StateClassId] = float(r.Change)
+    return lambda cls, o, c: exact.get((cls, o, c), anyp.get(cls))
 
-    For a period (o, c):
-      a0  = per-area quantities of the period's first year (o+1) at year o prices
-      a1v = per-area quantities of year c at year o prices
-      a1  = per-area value from year c at year c prices
-      Opening value                 = opening area x a0
-      Conversions / catastrophic    = area added or removed x a0
-      Other changes in volume n.e.c = extent residual x a0
-      Enhancement or degradation    = closing area x (a1v - a0)
-      Revaluations                  = closing area x (a1 - a1v)
-      Closing value                 = closing area x a1
-    so the account reconciles exactly. If a class has no area in one of the
-    two years, the other year's per-area quantities are used.
-    prices_tbl must cover each period's opening timestep as well as the
-    supply timesteps.
+
+def classify_volume(volume: float, cond):
+    """
+    SEEA EA Annex 10.1 (as tabulated in the SEEALand example):
+      volume > 0 and condition > 0          -> enhancement
+      volume > 0 and condition <= 0         -> upward reappraisal
+      volume < 0 and condition < 0          -> degradation
+      volume < 0 and condition >= 0         -> downward reappraisal
+    With no condition data, a gain is enhancement and a loss degradation.
+    """
+    if volume > 0:
+        return "Ecosystem enhancement" if cond is None or cond > 0 else "Upward reappraisals"
+    if volume < 0:
+        return "Ecosystem degradation" if cond is None or cond < 0 else "Downward reappraisals"
+    return None
+
+
+def asset_account(comp, state, supply, prices_tbl, valuation, by_stratum=False, log=None,
+                  condition=None):
+    """
+    Monetary ecosystem asset account (SEEA EA ch. 10 and Annex 10.1).
+
+    Per class c and service s, the value is NPV = P x u x a, where
+      a = class area,
+      u = annual supply per area unit (expected flow intensity),
+      P = price x annuity(r, L), i.e. today's flow is assumed to continue for
+          the asset life.
+    Opening: a = opening area, u = supply per area in the period's first year
+    (o+1), price of year o. Closing: closing area, supply per area in year c,
+    price of year c. If a class has no area in one of those years, the other
+    year's u is used.
+
+    The change P1u1a1 - P0u0a0 is split exactly into area, volume and price
+    effects with the symmetric weights of SEEA EA Annex 10.1:
+      area   = (P0u0/3 + P0u1/6 + P1u0/6 + P1u1/3) x (a1 - a0)
+      volume = (P0a0/3 + P0a1/6 + P1a0/6 + P1a1/3) x (u1 - u0)
+      price  = (u0a0/3 + u0a1/6 + u1a0/6 + u1a1/3) x (P1 - P0)
+    The area effect is split by the extent account into conversions
+    (additions, reductions), catastrophic losses and unexplained change; the
+    volume effect (summed over services) into enhancement, degradation or
+    reappraisals using the condition change (classify_volume); the price
+    effect is revaluation.
     """
     if supply is None or prices_tbl is None or prices_tbl.empty:
         _log(log, "SEEA-Sim: no priced services; asset account skipped.")
@@ -555,57 +597,65 @@ def asset_account(comp, state, supply, prices_tbl, valuation, by_stratum=False, 
             r = default.iloc[0]
         else:
             return np.nan
-        return annuity_factor(float(r.DiscountRate), int(r.AssetLife))
+        return annuity_factor(float(r.DiscountRate), int(r.AssetLifeYears))
+
+    cond_of = condition_lookup(condition)
+    if condition is None or condition.empty:
+        _log(log, "SEEA-Sim: no condition data; volume gains are booked as enhancement and "
+                  "losses as degradation (no reappraisals).")
 
     st = _prep_state(state, by_stratum)
     keys = ["Iteration", "StratumId", "StateClassId"]
-    # physical quantity per area unit, per service and year
     q = supply.merge(st, on=["Iteration", "StratumId", "Timestep", "StateClassId"],
                      how="left", suffixes=("", "_area"))
     q["PerArea"] = np.where(q["Amount_area"] > 0, q["Amount"] / q["Amount_area"], np.nan)
     prices = prices_tbl.set_index(["ServiceId", "Timestep"])["Price"]
-    priced = set(prices_tbl.ServiceId)
-    q = q[q.ServiceId.isin(priced)]
+    q = q[q.ServiceId.isin(set(prices_tbl.ServiceId))]
 
     out = []
     for (o, c), comp_p in comp.groupby(PERIOD):
+        o, c = int(o), int(c)
         t0, t1 = o + 1, c
-        q0 = q[q.Timestep == t0].set_index(keys + ["ServiceId"])["PerArea"]
-        q1 = q[q.Timestep == t1].set_index(keys + ["ServiceId"])["PerArea"]
-        both = pd.concat([q0.rename("q0"), q1.rename("q1")], axis=1)
-        both["q0"] = both["q0"].fillna(both["q1"])
-        both["q1"] = both["q1"].fillna(both["q0"])
-        both = both.fillna(0.0).reset_index()
-        both["p0"] = [prices.get((s, o), np.nan) for s in both.ServiceId]
-        both["p1"] = [prices.get((s, t1), np.nan) for s in both.ServiceId]
-        both[["p0", "p1"]] = both[["p0", "p1"]].fillna(0.0)
-        both["v0"], both["v1v"], both["v1"] = (both.q0 * both.p0, both.q1 * both.p0,
-                                               both.q1 * both.p1)
-        unit = both.groupby(keys)[["v0", "v1v", "v1"]].sum().reset_index()
-        unit["AF"] = unit.StateClassId.map(af)
-        if unit.AF.isna().any():
-            miss = sorted(map(str, unit.loc[unit.AF.isna(), "StateClassId"].unique()))
+        u0 = q[q.Timestep == t0].set_index(keys + ["ServiceId"])["PerArea"]
+        u1 = q[q.Timestep == t1].set_index(keys + ["ServiceId"])["PerArea"]
+        s = pd.concat([u0.rename("u0"), u1.rename("u1")], axis=1)
+        s["u0"] = s["u0"].fillna(s["u1"])
+        s["u1"] = s["u1"].fillna(s["u0"])
+        s = s.fillna(0.0).reset_index()
+        s["AF"] = s.StateClassId.map(af)
+        if s.AF.isna().any():
+            miss = sorted(map(str, s.loc[s.AF.isna(), "StateClassId"].unique()))
             _log(log, f"SEEA-Sim: no discount rate/asset life for {miss}; valued at 0. "
                       "Add a row with no State Class as the default.")
-            unit["AF"] = unit.AF.fillna(0.0)
-        for col in ("v0", "v1v", "v1"):
-            unit[col] *= unit.AF
-        d = comp_p.merge(unit, on=keys, how="left").fillna({"v0": 0.0, "v1v": 0.0, "v1": 0.0})
-        adds = d.Add_Managed + d.Add_Unmanaged + d.Add_Catastrophic
-        redn = d.Red_Managed + d.Red_Unmanaged
-        vol = d.Closing * (d.v1v - d.v0)
-        vals = {
-            "Opening value": d.Opening * d.v0,
-            "Ecosystem enhancement": vol.clip(lower=0),
-            "Ecosystem degradation": vol.clip(upper=0),
-            "Ecosystem conversions: additions": adds * d.v0,
-            "Ecosystem conversions: reductions": -redn * d.v0,
-            "Catastrophic losses": -d.Red_Catastrophic * d.v0,
-            "Other changes in volume n.e.c.": d.Residual * d.v0,
-            "Revaluations": d.Closing * (d.v1 - d.v1v),
-            "Net change in value": d.Closing * d.v1 - d.Opening * d.v0,
-            "Closing value": d.Closing * d.v1,
-        }
+            s["AF"] = s.AF.fillna(0.0)
+        s["P0"] = [prices.get((sv, o), np.nan) for sv in s.ServiceId]
+        s["P1"] = [prices.get((sv, c), np.nan) for sv in s.ServiceId]
+        s[["P0", "P1"]] = s[["P0", "P1"]].fillna(0.0).mul(s.AF, axis=0)
+        s = s.merge(comp_p[keys + ["Opening", "Closing"]], on=keys, how="left").fillna(
+            {"Opening": 0.0, "Closing": 0.0})
+        P0, P1, a0, a1, U0, U1 = s.P0, s.P1, s.Opening, s.Closing, s.u0, s.u1
+        s["V0"] = P0 * U0 * a0
+        s["V1"] = P1 * U1 * a1
+        s["w_area"] = P0 * U0 / 3 + P0 * U1 / 6 + P1 * U0 / 6 + P1 * U1 / 3
+        s["vol"] = (P0 * a0 / 3 + P0 * a1 / 6 + P1 * a0 / 6 + P1 * a1 / 3) * (U1 - U0)
+        s["price"] = (U0 * a0 / 3 + U0 * a1 / 6 + U1 * a0 / 6 + U1 * a1 / 3) * (P1 - P0)
+        cls = s.groupby(keys)[["V0", "V1", "w_area", "vol", "price"]].sum().reset_index()
+        d = comp_p.merge(cls, on=keys, how="left").fillna(
+            {"V0": 0.0, "V1": 0.0, "w_area": 0.0, "vol": 0.0, "price": 0.0})
+        w = d.w_area
+        vals = {e: pd.Series(0.0, index=d.index) for e in ASSET_ENTRIES}
+        vals["Opening value"] = d.V0
+        vals["Closing value"] = d.V1
+        vals["Net change in value"] = d.V1 - d.V0
+        vals["Ecosystem conversions: additions"] = (d.Add_Managed + d.Add_Unmanaged + d.Add_Catastrophic) * w
+        vals["Ecosystem conversions: reductions"] = -(d.Red_Managed + d.Red_Unmanaged) * w
+        vals["Catastrophic losses"] = -d.Red_Catastrophic * w
+        vals["Other changes in volume n.e.c."] = d.Residual * w
+        vals["Revaluations"] = d.price
+        for i, r in d.iterrows():
+            entry = classify_volume(r.vol, cond_of(r.StateClassId, o, c))
+            if entry:
+                vals[entry].loc[i] = r.vol
         base = d[["Iteration", "StratumId", *PERIOD, "StateClassId"]]
         out += [base.assign(Entry=e, Amount=vals[e].values) for e in ASSET_ENTRIES]
     return _finish(pd.concat(out, ignore_index=True))
