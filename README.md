@@ -2,7 +2,7 @@
 
 A SyncroSim add-on that turns ST-Sim output into SEEA Ecosystem Accounting (UN 2024) tables. It runs after ST-Sim in the same scenario, so every scenario and iteration gets its own set of accounts.
 
-Version 1.0.4, a draft. It is written for **SyncroSim 3.1.14+ and ST-Sim 4.5.4** and has been run in SyncroSim Studio 3.2.0 with ST-Sim 4.5.4, where stocks and flows are part of ST-Sim (the old `stsimsf` package is gone). The accounting is done in this package; it no longer depends on `strategicc`.
+Version 1.0.4. It is written for **SyncroSim 3.1.14+ and ST-Sim 4.5.4** and has been run in SyncroSim Studio 3.2.0 with ST-Sim 4.5.4. The accounting is done in this package; it no longer depends on `strategicc`.
 
 ## What it produces
 
@@ -111,13 +111,6 @@ Run the tests with `python -m pytest tests -q`.
 - Example loader (`examples/demak/add_seeasim.py`): `add_packages` is called with lists, because pysyncrosim 2.2 splits a version string into characters.
 - Libraries made with an earlier SEEA-Sim version are not migrated (patch versions run no schema update); rebuild them.
 
-## Not yet confirmed against a live installation
-
-- Run end to end in SyncroSim Studio 3.2.0 with ST-Sim 4.5.4 (four 2022-2031 scenarios, 20 iterations, 8 jobs). The points below are still assumptions.
-- pysyncrosim is assumed to return Id columns as names, and List columns as either codes or labels (both are handled).
-- `stsim_OutputStock` amounts are assumed to be totals (density x area), and transition-triggered flows to carry the pre-transition `FromStateClassId`.
-- The automatic per-type groups are assumed to be named `<type> [Type]`.
-- Strata are assumed not to change during a run (`OutputStratumTransitionState` has no end stratum).
 
 ## Not yet included
 
