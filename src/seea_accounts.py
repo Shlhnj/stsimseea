@@ -19,8 +19,13 @@ Id columns can hold names or integers; values are only used as keys.
 Conventions
   * A period (o, c) covers the transitions and flows of timesteps o+1 .. c.
     Opening = state at the end of timestep o, closing = state at the end of c.
-  * Additions are positive and reductions negative, so Net change equals the
-    sum of the change entries in every account.
+  * Entry labels and signs follow the UN SEEA EA (2024) tables. Physical
+    accounts (extent, Table 4.1/AI.2; carbon stock, Table 13.3) record
+    reductions as positive amounts: Net change = additions - reductions.
+    The monetary asset account (Table 10.1/AI.11) records decreases as
+    negative amounts: Net change = sum of the change entries. The carbon
+    process detail (carbon_accounts' first table) is not a UN table and
+    uses negative reductions.
   * Every account is computed per iteration. SyncroSim summarises across
     iterations.
 """
@@ -106,15 +111,17 @@ def _check_timesteps(df: pd.DataFrame, timesteps, name: str):
 
 # ---------------------------------------------------------------- extent
 
+# SEEA EA Table 4.1 / AI.2. "Group: item" = item under that group's sub-header.
 EXTENT_ENTRIES = [
     "Opening extent",
-    "Additions: managed expansion",
-    "Additions: unmanaged expansion",
-    "Reductions: managed reduction",
-    "Reductions: unmanaged reduction",
+    "Additions to extent: Managed expansions",
+    "Additions to extent: Unmanaged expansions",
+    "Reductions in extent: Managed reductions",
+    "Reductions in extent: Unmanaged reductions",
     "Net change in extent",
     "Closing extent",
 ]
+EXTENT_REDUCTIONS = [e for e in EXTENT_ENTRIES if e.startswith("Reductions in extent")]
 
 
 def _prep_state(state, by_stratum):
@@ -181,16 +188,27 @@ def extent_components(state, trans, periods, tt_class, by_stratum=False, log=Non
 def extent_account(comp: pd.DataFrame) -> pd.DataFrame:
     vals = {
         "Opening extent": comp["Opening"],
-        "Additions: managed expansion": comp["Add_Managed"],
-        "Additions: unmanaged expansion": comp["Add_Unmanaged"] + comp["Add_Catastrophic"],
-        "Reductions: managed reduction": -comp["Red_Managed"],
-        "Reductions: unmanaged reduction": -(comp["Red_Unmanaged"] + comp["Red_Catastrophic"]),
+        "Additions to extent: Managed expansions": comp["Add_Managed"],
+        "Additions to extent: Unmanaged expansions": comp["Add_Unmanaged"] + comp["Add_Catastrophic"],
+        "Reductions in extent: Managed reductions": comp["Red_Managed"],
+        "Reductions in extent: Unmanaged reductions": comp["Red_Unmanaged"] + comp["Red_Catastrophic"],
         "Net change in extent": comp["Closing"] - comp["Opening"],
         "Closing extent": comp["Closing"],
     }
     base = comp[["Iteration", "StratumId", *PERIOD, "StateClassId"]]
     rows = [base.assign(Entry=e, Amount=vals[e].values) for e in EXTENT_ENTRIES]
-    return _finish(pd.concat(rows, ignore_index=True))
+    return _finish(_order(pd.concat(rows, ignore_index=True), EXTENT_ENTRIES))
+
+
+def _order(df, entries, keys=("StateClassId",)):
+    """Sort rows by iteration, stratum, period, keys, then the UN entry order."""
+    df = df.copy()
+    df["_o"] = df["Entry"].map({e: i for i, e in enumerate(entries)})
+    by = [c for c in ["Iteration", "StratumId", *PERIOD, *keys] if c in df.columns]
+    df["_s"] = df["StratumId"].astype(str) if "StratumId" in df.columns else ""
+    by = ["_s" if c == "StratumId" else c for c in by]
+    df = df.sort_values(by + ["_o"], kind="stable").drop(columns=["_o", "_s"])
+    return df.reset_index(drop=True)
 
 
 def change_matrix(state, trans, periods, tt_class, by_stratum=False, log=None):
@@ -236,6 +254,7 @@ def change_matrix(state, trans, periods, tt_class, by_stratum=False, log=None):
 
 # ---------------------------------------------------------------- carbon
 
+# Carbon by process (SEEA-Sim detail, not a UN table; reductions negative).
 STOCK_ENTRIES = [
     "Opening stock",
     "Additions: sequestration",
@@ -251,6 +270,25 @@ STOCK_ENTRIES = [
     "Net change in stock",
     "Closing stock",
 ]
+
+
+# SEEA EA Table 13.3 (carbon stock account) rows; reductions positive.
+CARBON_ENTRIES = [
+    "Opening stock",
+    "Additions to stock: Unmanaged expansion",
+    "Additions to stock: Managed expansion",
+    "Additions to stock: Discoveries",
+    "Additions to stock: Reclassifications",
+    "Additions to stock: Imports",
+    "Reductions in stock: Unmanaged contraction",
+    "Reductions in stock: Managed contraction",
+    "Reductions in stock: Reclassifications",
+    "Reductions in stock: Exports",
+    "Reductions in stock: Catastrophic losses",
+    "Net carbon balance",
+    "Closing stock",
+]
+CARBON_REDUCTIONS = [e for e in CARBON_ENTRIES if e.startswith("Reductions in stock")]
 
 
 def stock_type_roles(groups: pd.DataFrame, membership: pd.DataFrame):
@@ -341,11 +379,30 @@ def classify_flows(flow, role_of, by_stratum):
 
 
 def carbon_accounts(stock, flow, periods, groups, membership, flow_groups=None,
-                    flow_membership=None, by_stratum=False, log=None):
-    """Returns (stock account, flow account, checks) or (None, None, None)."""
+                    flow_membership=None, by_stratum=False, log=None, tt_class=None,
+                    with_un=False):
+    """
+    Returns (stock changes by process, flow account, checks), or with
+    with_un=True also the SEEA EA Table 13.3 account as a fourth item
+    (None for all if no carbon stock groups are listed).
+
+    Table 13.3 entries, per class and ecosystem pool:
+      flows into the pool       -> Managed expansion if the flow was triggered by a
+                                   Managed transition type, else Unmanaged expansion
+      flows out of the pool     -> Managed contraction (Managed transition),
+                                   Catastrophic losses (Catastrophic transition),
+                                   else Unmanaged contraction
+      carbon that moved with area converted to or from the class
+                                -> Reclassifications (net: additions if it gained,
+                                   reductions if it lost); zero over all classes
+      Discoveries, Imports, Exports are geocarbon or economy entries: always 0.
+    Transfers between pools of the same class appear in each pool and cancel
+    in the sum over pools.
+    """
+    tt_class = tt_class or {}
     if groups is None or groups.empty:
         _log(log, "SEEA-Sim: no Carbon Stock Groups listed; carbon accounts skipped.")
-        return None, None, None
+        return (None, None, None, None) if with_un else (None, None, None)
     role_of, pool_of = stock_type_roles(groups, membership)
     pools = set(pool_of.values())
     if not pools:
@@ -357,8 +414,11 @@ def carbon_accounts(stock, flow, periods, groups, membership, flow_groups=None,
                     as_index=False)["Amount"].sum()
     fl = classify_flows(select_flow_rows(flow, flow_groups, flow_membership), role_of, by_stratum)
 
+    fl["Mode"] = [tt_class.get(t, UNMANAGED) if pd.notna(t) else UNMANAGED
+                  for t in fl["TransitionTypeId"]]
+
     keys = ["Iteration", "StratumId", "StateClassId", "StockGroupId"]
-    stock_rows, flow_rows, checks = [], [], []
+    stock_rows, flow_rows, un_rows, checks = [], [], [], []
     for o, c in periods:
         _check_timesteps(st, [o, c], "stsim_OutputStock")
         f = fl[(fl.Timestep > o) & (fl.Timestep <= c)]
@@ -392,6 +452,31 @@ def carbon_accounts(stock, flow, periods, groups, membership, flow_groups=None,
         w["Net change in stock"] = w["Closing stock"] - w["Opening stock"]
         w["Change from ecosystem conversion"] = w["Net change in stock"] - w[change_cols].sum(axis=1)
         w = w[STOCK_ENTRIES]
+
+        # SEEA EA Table 13.3
+        inn = inflow.assign(Entry=np.where(inflow.Mode == MANAGED,
+                                           "Additions to stock: Managed expansion",
+                                           "Additions to stock: Unmanaged expansion"))
+        out_ = outflow.assign(Amount=-outflow.Amount, Entry=np.select(
+            [outflow.Mode == MANAGED, outflow.Mode == CATASTROPHIC],
+            ["Reductions in stock: Managed contraction", "Reductions in stock: Catastrophic losses"],
+            default="Reductions in stock: Unmanaged contraction"))
+        u = (pd.concat([inn, out_]).groupby(keys + ["Entry"])["Amount"].sum().unstack("Entry")
+             .reindex(w.index).fillna(0.0))
+        for e in CARBON_ENTRIES:
+            if e not in u.columns:
+                u[e] = 0.0
+        conv = w["Change from ecosystem conversion"]
+        u["Additions to stock: Reclassifications"] = conv.clip(lower=0) + 0.0
+        u["Reductions in stock: Reclassifications"] = (-conv).clip(lower=0) + 0.0
+        u["Opening stock"], u["Closing stock"] = w["Opening stock"], w["Closing stock"]
+        u["Net carbon balance"] = w["Net change in stock"]
+        u = u[CARBON_ENTRIES]
+        u.columns.name = "Entry"
+        ul = u.stack().rename("Amount").reset_index()
+        ul["OpeningTimestep"], ul["ClosingTimestep"] = o, c
+        un_rows.append(ul)
+
         w.columns.name = "Entry"
         long = w.stack().rename("Amount").reset_index()
         long["OpeningTimestep"], long["ClosingTimestep"] = o, c
@@ -407,8 +492,13 @@ def carbon_accounts(stock, flow, periods, groups, membership, flow_groups=None,
     stock_acc["Entry"] = pd.Categorical(stock_acc["Entry"], STOCK_ENTRIES, ordered=True)
     stock_acc = stock_acc.sort_values(keys[:2] + PERIOD + keys[2:] + ["Entry"])
     stock_acc["Entry"] = stock_acc["Entry"].astype(str)
-    return (_finish(stock_acc), _finish(pd.concat(flow_rows, ignore_index=True)),
-            pd.concat(checks, ignore_index=True))
+    result = (_finish(stock_acc), _finish(pd.concat(flow_rows, ignore_index=True)),
+              pd.concat(checks, ignore_index=True))
+    if not with_un:
+        return result
+    un = _order(pd.concat(un_rows, ignore_index=True), CARBON_ENTRIES,
+                keys=("StateClassId", "StockGroupId"))
+    return (*result, _finish(un))
 
 
 # ---------------------------------------------------------------- services
@@ -502,16 +592,24 @@ def service_value(supply, prices_tbl):
 
 # ---------------------------------------------------------------- assets
 
+# SEEA EA Table 10.1 / AI.11; decreases negative.
+OCV = "Other changes in volume of ecosystem assets"
+CONVERSION_ADD = "Ecosystem conversions: Additions"
+CONVERSION_RED = "Ecosystem conversions: Reductions"
+CATASTROPHIC_LOSS = f"{OCV}: Catastrophic losses"
+UPWARD = f"{OCV}: Upward reappraisals"
+DOWNWARD = f"{OCV}: Downward reappraisals"
+OTHER_VOLUME = f"{OCV}: Other changes n.e.c."
 ASSET_ENTRIES = [
     "Opening value",
     "Ecosystem enhancement",
     "Ecosystem degradation",
-    "Ecosystem conversions: additions",
-    "Ecosystem conversions: reductions",
-    "Catastrophic losses",
-    "Upward reappraisals",
-    "Downward reappraisals",
-    "Other changes in volume n.e.c.",
+    CONVERSION_ADD,
+    CONVERSION_RED,
+    CATASTROPHIC_LOSS,
+    UPWARD,
+    DOWNWARD,
+    OTHER_VOLUME,
     "Revaluations",
     "Net change in value",
     "Closing value",
@@ -549,9 +647,9 @@ def classify_volume(volume: float, cond):
     With no condition data, a gain is enhancement and a loss degradation.
     """
     if volume > 0:
-        return "Ecosystem enhancement" if cond is None or cond > 0 else "Upward reappraisals"
+        return "Ecosystem enhancement" if cond is None or cond > 0 else UPWARD
     if volume < 0:
-        return "Ecosystem degradation" if cond is None or cond < 0 else "Downward reappraisals"
+        return "Ecosystem degradation" if cond is None or cond < 0 else DOWNWARD
     return None
 
 
@@ -647,30 +745,68 @@ def asset_account(comp, state, supply, prices_tbl, valuation, by_stratum=False, 
         vals["Opening value"] = d.V0
         vals["Closing value"] = d.V1
         vals["Net change in value"] = d.V1 - d.V0
-        vals["Ecosystem conversions: additions"] = (d.Add_Managed + d.Add_Unmanaged + d.Add_Catastrophic) * w
-        vals["Ecosystem conversions: reductions"] = -(d.Red_Managed + d.Red_Unmanaged) * w
-        vals["Catastrophic losses"] = -d.Red_Catastrophic * w
-        vals["Other changes in volume n.e.c."] = d.Residual * w
+        vals[CONVERSION_ADD] = (d.Add_Managed + d.Add_Unmanaged + d.Add_Catastrophic) * w
+        vals[CONVERSION_RED] = -(d.Red_Managed + d.Red_Unmanaged) * w
+        vals[CATASTROPHIC_LOSS] = -d.Red_Catastrophic * w
+        vals[OTHER_VOLUME] = d.Residual * w
         vals["Revaluations"] = d.price
         for i, r in d.iterrows():
             entry = classify_volume(r.vol, cond_of(r.StateClassId, o, c))
             if entry:
                 vals[entry].loc[i] = r.vol
         base = d[["Iteration", "StratumId", *PERIOD, "StateClassId"]]
+        scale = max(1.0, float(np.abs(d.V0).max()), float(np.abs(d.V1).max()))
+        for e in ASSET_ENTRIES:  # floating-point noise from the decomposition -> 0
+            vals[e] = vals[e].where(np.abs(vals[e]) > 1e-12 * scale, 0.0)
         out += [base.assign(Entry=e, Amount=vals[e].values) for e in ASSET_ENTRIES]
-    return _finish(pd.concat(out, ignore_index=True))
+    return _finish(_order(pd.concat(out, ignore_index=True), ASSET_ENTRIES))
+
+
+def annual_values(state, supply, prices_tbl, valuation, by_stratum=False, log=None):
+    """
+    Per (Iteration, Timestep, StratumId, StateClassId), for every year with supply:
+      ServiceValue = sum over services of supply x price       (currency per year)
+      AssetValue   = ServiceValue x annuity(r, L) of the class  (currency)
+      Area, ServiceValuePerArea, AssetValuePerArea (per area unit).
+    AssetValue is the same NPV the asset account uses at its opening and closing,
+    computed for every year, for charts and maps.
+    """
+    if supply is None or prices_tbl is None or prices_tbl.empty:
+        return None
+    v = supply.merge(prices_tbl, on=["ServiceId", "Timestep"], how="inner")
+    if v.empty:
+        return None
+    v["Value"] = v["Amount"] * v["Price"]
+    keys = ["Iteration", "Timestep", "StratumId", "StateClassId"]
+    out = v.groupby(keys, as_index=False)["Value"].sum().rename(columns={"Value": "ServiceValue"})
+    af = {}
+    if valuation is not None and not valuation.empty:
+        default = valuation[valuation["StateClassId"].isna()]
+        for cls in out.StateClassId.unique():
+            row = valuation[valuation["StateClassId"] == cls]
+            row = row if not row.empty else default
+            if not row.empty:
+                af[cls] = annuity_factor(float(row.iloc[0].DiscountRate), int(row.iloc[0].AssetLifeYears))
+    out["AssetValue"] = out["ServiceValue"] * out["StateClassId"].map(af).fillna(0.0)
+    st = _prep_state(state, by_stratum).rename(columns={"Amount": "Area"})
+    out = out.merge(st, on=keys, how="left")
+    out["ServiceValuePerArea"] = np.where(out.Area > 0, out.ServiceValue / out.Area, 0.0)
+    out["AssetValuePerArea"] = np.where(out.Area > 0, out.AssetValue / out.Area, 0.0)
+    return out
 
 
 def account_checks(table: pd.DataFrame, account: str, opening: str, closing: str,
-                   net: str) -> pd.DataFrame:
-    """Opening + sum(change entries) - closing, and net - (closing - opening)."""
+                   net: str, reductions=()) -> pd.DataFrame:
+    """Opening + additions - reductions - closing; entries listed in `reductions`
+    are positive amounts that are subtracted, all other change entries are added."""
     t = table.copy()
     t["StratumId"] = t["StratumId"].astype(object).where(t["StratumId"].notna(), ALL)
     idx = [c for c in ["Iteration", "StratumId", *PERIOD, "StateClassId", "StockGroupId"]
            if c in t.columns]
     w = t.pivot_table(index=idx, columns="Entry", values="Amount", aggfunc="sum").fillna(0.0)
     changes = [c for c in w.columns if c not in (opening, closing, net)]
-    res = (w[opening] + w[changes].sum(axis=1) - w[closing]).abs()
+    sign = pd.Series([-1.0 if c in reductions else 1.0 for c in changes], index=changes)
+    res = (w[opening] + (w[changes] * sign).sum(axis=1) - w[closing]).abs()
     res = res.groupby(["Iteration", "StratumId", *PERIOD]).sum().rename("Residual").reset_index()
     return res.assign(Account=account, Item="Opening + changes - closing (should be 0)")
 

@@ -196,7 +196,7 @@ def add_to_library(session, lib, proj, scn, external_log=None):
         # Name the version: with several versions installed, pysyncrosim would
         # otherwise take whichever SyncroSim lists last, which may be an older one.
         if want:
-            lib.add_packages("stsimseea", versions=want)
+            lib.add_packages(["stsimseea"], versions=[want])  # lists: pysyncrosim 2.2 zips a version string into characters
         else:
             lib.add_packages("stsimseea")
     except Exception as e:

@@ -113,7 +113,7 @@ def test_extent_reconciles_and_matches_state():
         assert comp.Residual.abs().max() < 1e-9
         ext = sa.extent_account(comp)
         chk = sa.account_checks(ext, "Extent", "Opening extent", "Closing extent",
-                                "Net change in extent")
+                                "Net change in extent", sa.EXTENT_REDUCTIONS)
         assert chk.Residual.max() < 1e-9
     # total area is conserved
     tot = ext[ext.Entry == "Closing extent"].groupby(["Iteration", "ClosingTimestep"]).Amount.sum()

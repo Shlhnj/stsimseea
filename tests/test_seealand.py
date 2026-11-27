@@ -57,10 +57,10 @@ UN_ASSET = {
     "Opening value": [905065.3844, 1078320.758, 484856.456, 522567.5136, 51718.022, 529678.7417],
     "Ecosystem enhancement": [0, 15299.9148, 0, 0, 0, 0],
     "Ecosystem degradation": [-108111.0809, 0, 0, 0, -1099.008, -163946.1296],
-    "Ecosystem conversions: additions": [0, 0, 16943.9084, 0, 0, 0],
-    "Ecosystem conversions: reductions": [-43434.6322, 0, 0, 0, 0, 0],
-    "Upward reappraisals": [0, 0, 47703.6191, 43098.3516, 0, 0],
-    "Downward reappraisals": [0, 0, 0, 0, 0, 0],
+    sa.CONVERSION_ADD: [0, 0, 16943.9084, 0, 0, 0],
+    sa.CONVERSION_RED: [-43434.6322, 0, 0, 0, 0, 0],
+    sa.UPWARD: [0, 0, 47703.6191, 43098.3516, 0, 0],
+    sa.DOWNWARD: [0, 0, 0, 0, 0, 0],
     "Revaluations": [35180.1637, 47623.6786, 0, 215.4918, 840.4179, 160929.245],
     "Net change in value": [-116365.5494, 62923.5934, 64647.5275, 43313.8434, -258.5901, -3016.8846],
     "Closing value": [788699.835, 1141244.3514, 549503.9834, 565881.357, 51459.4319, 526661.857],
@@ -92,8 +92,8 @@ UN_ASSET_CORRECTED["Revaluations"][1] -= LAKE_REC
 AF = sa.annuity_factor(0.02, 100)
 UN_ASSET_CORRECTED["Ecosystem degradation"][5] = -100 * 5 * AF
 UN_ASSET_CORRECTED["Revaluations"][5] = (370 - 340) * 6 * AF + (26 - 25) * 250 * AF
-UN_ASSET_CORRECTED["Ecosystem enhancement"][2] = UN_ASSET["Upward reappraisals"][2]
-UN_ASSET_CORRECTED["Upward reappraisals"][2] = 0.0
+UN_ASSET_CORRECTED["Ecosystem enhancement"][2] = UN_ASSET[sa.UPWARD][2]
+UN_ASSET_CORRECTED[sa.UPWARD][2] = 0.0
 
 # ES flows tab, exchange values of actual flows (= monetary supply)
 UN_MONETARY_SUPPLY = {"Wood provisioning": 8400, "Crop provisioning": 11250,
@@ -155,8 +155,8 @@ def test_extent_account_and_change_matrix():
     for e in ET:
         _close(ext.loc["Opening extent", e], OPEN[e], f"opening {e}")
         _close(ext.loc["Closing extent", e], CLOSE[e], f"closing {e}")
-    _close(ext.loc["Additions: managed expansion", "Cropland"], 2, "managed expansion")
-    _close(ext.loc["Reductions: managed reduction", "Forest"], -2, "managed reduction")
+    _close(ext.loc["Additions to extent: Managed expansions", "Cropland"], 2, "managed expansion")
+    _close(ext.loc["Reductions in extent: Managed reductions", "Forest"], 2, "managed reduction (positive, UN Table 4.1)")
     m, _ = sa.change_matrix(_state(), _trans(), PERIODS, TTC)
     m = m.pivot_table(index="FromStateClassId", columns="ToStateClassId", values="Amount", fill_value=0)
     assert m.loc["Forest", "Forest"] == 38 and m.loc["Forest", "Cropland"] == 2

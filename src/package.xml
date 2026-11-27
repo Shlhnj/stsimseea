@@ -11,7 +11,7 @@
 
   Run it as a second pipeline stage after stsim_Runtime.
 -->
-<package name="stsimseea" displayName="SEEA-Sim" description="SEEA Ecosystem Accounting tables from ST-Sim output" version="1.0.3" minSyncroSimVersion="3.1.14" url="https://github.com/Shlhnj/stsimseea">
+<package name="stsimseea" displayName="SEEA-Sim" description="SEEA Ecosystem Accounting tables from ST-Sim output" version="1.0.4" minSyncroSimVersion="3.1.14" url="https://github.com/Shlhnj/stsimseea">
 
   <builtFor package="stsim" version="4.5.4"/>
 
@@ -29,6 +29,7 @@
   <dataSheet name="Options" displayName="Options" isSingleRow="True">
     <column name="ReportByStratum" displayName="Report by primary stratum (accounting area)" dataType="Boolean"/>
     <column name="Currency" dataType="String" isOptional="True"/>
+    <column name="MapOutput" displayName="Write value maps (needs ST-Sim state-class maps at the closing years)" dataType="Boolean" isOptional="True"/>
   </dataSheet>
 
   <dataSheet name="AccountingPeriod" displayName="Accounting Periods">
@@ -83,8 +84,12 @@
   </dataSheet>
 
   <!-- ===================== Outputs ===================== -->
-  <!-- Sign convention: additions positive, reductions negative, so each
-       account's Net change equals the sum of its change entries. -->
+  <!-- Entry labels and signs follow the UN SEEA EA (2024) tables. Extent
+       (Table 4.1/AI.2) and Carbon Stock Account (Table 13.3): reductions are
+       positive, Net change = additions - reductions. Monetary Asset Account
+       (Table 10.1/AI.11): decreases negative, Net change = sum of entries.
+       "Group: item" = item under that group's sub-header in the UN table.
+       Carbon Stock Changes by Process is SEEA-Sim detail; reductions negative. -->
 
   <dataSheet name="OutputExtent" displayName="Extent Account" hasIteration="True">
     <column name="OpeningTimestep" dataType="Integer"/>
@@ -104,7 +109,17 @@
     <column name="Amount" dataType="Double"/>
   </dataSheet>
 
-  <dataSheet name="OutputCarbonStock" displayName="Carbon Stock Account" hasIteration="True">
+  <dataSheet name="OutputCarbonAccount" displayName="Carbon Stock Account" hasIteration="True">
+    <column name="OpeningTimestep" dataType="Integer"/>
+    <column name="ClosingTimestep" dataType="Integer"/>
+    <column name="StratumId" dataType="Integer" validationType="Datasheet" formula1="stsim_Stratum" isOptional="True"/>
+    <column name="StateClassId" dataType="Integer" validationType="Datasheet" formula1="stsim_StateClass"/>
+    <column name="StockGroupId" dataType="Integer" validationType="Datasheet" formula1="stsim_StockGroup"/>
+    <column name="Entry" dataType="String"/>
+    <column name="Amount" dataType="Double"/>
+  </dataSheet>
+
+  <dataSheet name="OutputCarbonStock" displayName="Carbon Stock Changes by Process" hasIteration="True">
     <column name="OpeningTimestep" dataType="Integer"/>
     <column name="ClosingTimestep" dataType="Integer"/>
     <column name="StratumId" dataType="Integer" validationType="Datasheet" formula1="stsim_Stratum" isOptional="True"/>
@@ -149,6 +164,22 @@
     <column name="Amount" dataType="Double"/>
   </dataSheet>
 
+  <dataSheet name="OutputAssetValue" displayName="Ecosystem Value by Year" hasIteration="True" hasTimestep="True">
+    <column name="StratumId" dataType="Integer" validationType="Datasheet" formula1="stsim_Stratum" isOptional="True"/>
+    <column name="StateClassId" dataType="Integer" validationType="Datasheet" formula1="stsim_StateClass"/>
+    <column name="ServiceValue" displayName="Ecosystem service value (per year)" dataType="Double"/>
+    <column name="AssetValue" displayName="Ecosystem asset value (NPV)" dataType="Double"/>
+  </dataSheet>
+
+  <dataSheet name="OutputSpatialValue" displayName="Value Maps" hasIteration="True" hasTimestep="True">
+    <column name="ServiceValueFile" displayName="Service value per area unit per year" dataType="String" isExternalFile="True" externalFileFilter="GeoTIFF Files (*.tif)|*.tif|All Files (*.*)|*.*" isRaster="True"/>
+    <column name="AssetValueFile" displayName="Asset value per area unit" dataType="String" isExternalFile="True" externalFileFilter="GeoTIFF Files (*.tif)|*.tif|All Files (*.*)|*.*" isRaster="True"/>
+  </dataSheet>
+
+  <dataSheet name="OutputWorkbook" displayName="SEEA-Sim Workbook" isSingleRow="True">
+    <column name="File" displayName="Excel workbook" dataType="String" isExternalFile="True" externalFileFilter="Excel Files (*.xlsx)|*.xlsx|All Files (*.*)|*.*"/>
+  </dataSheet>
+
   <dataSheet name="OutputCheck" displayName="Reconciliation Checks" hasIteration="True">
     <column name="Account" dataType="String"/>
     <column name="OpeningTimestep" dataType="Integer"/>
@@ -167,7 +198,7 @@
     programName="python"
     programArguments="transformer.py"
     condaEnv="stsimseea.yml"
-    condaEnvVersion="2">
+    condaEnvVersion="3">
       <dataSheet name="Options" type="Input"/>
       <dataSheet name="AccountingPeriod" type="Input"/>
       <dataSheet name="TransitionTypeClass" type="Input"/>
@@ -179,11 +210,15 @@
       <dataSheet name="ConditionChange" type="Input"/>
       <dataSheet name="OutputExtent" type="Output"/>
       <dataSheet name="OutputChangeMatrix" type="Output"/>
+      <dataSheet name="OutputCarbonAccount" type="Output"/>
       <dataSheet name="OutputCarbonStock" type="Output"/>
       <dataSheet name="OutputCarbonFlow" type="Output"/>
       <dataSheet name="OutputServiceSupply" type="Output"/>
       <dataSheet name="OutputServiceValue" type="Output"/>
       <dataSheet name="OutputAssetAccount" type="Output"/>
+      <dataSheet name="OutputAssetValue" type="Output"/>
+      <dataSheet name="OutputSpatialValue" type="Output"/>
+      <dataSheet name="OutputWorkbook" type="Output"/>
       <dataSheet name="OutputCheck" type="Output"/>
   </transformer>
 
@@ -211,13 +246,33 @@
       <group name="Results">
         <item name="OutputExtent"/>
         <item name="OutputChangeMatrix"/>
+        <item name="OutputCarbonAccount"/>
         <item name="OutputCarbonStock"/>
         <item name="OutputCarbonFlow"/>
         <item name="OutputServiceSupply"/>
         <item name="OutputServiceValue"/>
         <item name="OutputAssetAccount"/>
+        <item name="OutputAssetValue"/>
+        <item name="OutputSpatialValue"/>
+        <item name="OutputWorkbook"/>
         <item name="OutputCheck"/>
       </group>
+    </group>
+  </layout>
+
+  <layout type="Chart">
+    <group name="SEEASim" displayName="SEEA-Sim">
+      <item name="seeasimSupplyByService" displayName="Physical supply (by service)" dataSheet="OutputServiceSupply" column="Amount" filter="ServiceId" prefixFolderName="False"/>
+      <item name="seeasimValueByService" displayName="Monetary supply (by service)" dataSheet="OutputServiceValue" column="Amount" filter="ServiceId" prefixFolderName="False"/>
+      <item name="seeasimValueByClass" displayName="Monetary supply (by ecosystem type)" dataSheet="OutputServiceValue" column="Amount" filter="StateClassId" prefixFolderName="False"/>
+      <item name="seeasimAssetByClass" displayName="Asset value, NPV (by ecosystem type)" dataSheet="OutputAssetValue" column="AssetValue" filter="StateClassId" prefixFolderName="False"/>
+    </group>
+  </layout>
+
+  <layout type="Map">
+    <group name="SEEASim" displayName="SEEA-Sim">
+      <item name="seeasimValueMap" displayName="Service value per area unit per year" dataSheet="OutputSpatialValue" column="ServiceValueFile"/>
+      <item name="seeasimAssetMap" displayName="Asset value per area unit" dataSheet="OutputSpatialValue" column="AssetValueFile"/>
     </group>
   </layout>
 

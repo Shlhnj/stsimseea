@@ -27,7 +27,7 @@ All files are in `demak/`.
 
 ## Use with the JEM inputs
 
-`build_jem_seeasim_library.ipynb` (Colab) writes the `demak/` files into the JEM inputs folder on Drive as `4_seeasim/`, adds the `stsimseea-1-0-3.ssimpkg` package file to it, and adds a few lines to `build_and_test.py` so that it loads `4_seeasim/` when the folder is there. It also checks every name against that folder's ST-Sim tables. It does not need SyncroSim.
+`build_jem_seeasim_library.ipynb` (Colab) writes the `demak/` files into the JEM inputs folder on Drive as `4_seeasim/`, adds the `stsimseea-1-0-4.ssimpkg` package file to it, and adds a few lines to `build_and_test.py` so that it loads `4_seeasim/` when the folder is there. It also checks every name against that folder's ST-Sim tables. It does not need SyncroSim.
 
 Then, on the laptop, in the JEM folder:
 
