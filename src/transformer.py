@@ -262,8 +262,9 @@ def main():
                 say("SEEA-Sim: no ST-Sim state-class maps or no values; value maps skipped.")
             else:
                 codes = so.class_codes(state_class_table(scn))
-                years = sorted({c for _, c in periods})
-                rows = so.write_value_maps(maps, codes, per_area, years, temp_folder("SEEASimMaps"), log=warn)
+                years = so.map_years(periods)
+                rows = so.write_value_maps(maps, codes, so.per_area_for_years(per_area, years), years,
+                                           temp_folder("SEEASimMaps"), log=warn)
                 if rows:
                     save(scn, "OutputSpatialValue", pd.DataFrame(rows),
                          ["Iteration", "Timestep", "ServiceValueFile", "AssetValueFile"])

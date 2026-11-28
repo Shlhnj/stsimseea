@@ -11,7 +11,7 @@
 
   Run it as a second pipeline stage after stsim_Runtime.
 -->
-<package name="stsimseea" displayName="SEEA-Sim" description="SEEA Ecosystem Accounting tables from ST-Sim output" version="1.0.4" minSyncroSimVersion="3.1.14" url="https://github.com/Shlhnj/stsimseea">
+<package name="stsimseea" displayName="SEEA-Sim" description="SEEA Ecosystem Accounting tables from ST-Sim output" version="1.0.5" minSyncroSimVersion="3.1.14" url="https://github.com/Shlhnj/stsimseea">
 
   <builtFor package="stsim" version="4.5.4"/>
 
@@ -29,7 +29,7 @@
   <dataSheet name="Options" displayName="Options" isSingleRow="True">
     <column name="ReportByStratum" displayName="Report by primary stratum (accounting area)" dataType="Boolean"/>
     <column name="Currency" dataType="String" isOptional="True"/>
-    <column name="MapOutput" displayName="Write value maps (needs ST-Sim state-class maps at the closing years)" dataType="Boolean" isOptional="True"/>
+    <column name="MapOutput" displayName="Write value maps (needs ST-Sim state-class maps at the period opening and closing years)" dataType="Boolean" isOptional="True"/>
   </dataSheet>
 
   <dataSheet name="AccountingPeriod" displayName="Accounting Periods">

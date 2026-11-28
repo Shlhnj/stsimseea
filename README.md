@@ -1,12 +1,8 @@
 # SEEA-Sim (`stsimseea`)
 
-![GitHub Release](https://img.shields.io/github/v/release/Shlhnj/stsimseea?color=fff000)
-![GitHub License](https://img.shields.io/github/license/Shlhnj/stsimseea)
-![GitHub repo size](https://img.shields.io/github/repo-size/Shlhnj/stsimseea)
-
 A SyncroSim add-on that turns ST-Sim output into SEEA Ecosystem Accounting (UN 2024) tables. It runs after ST-Sim in the same scenario, so every scenario and iteration gets its own set of accounts.
 
-Version 1.0.4. It is written for **SyncroSim 3.1.14+ and ST-Sim 4.5.4** and has been run in SyncroSim Studio 3.2.0 with ST-Sim 4.5.4. The accounting is done in this package; it no longer depends on `strategicc`.
+Version 1.0.5. It is written for **SyncroSim 3.1.14+ and ST-Sim 4.5.4** and has been run in SyncroSim Studio 3.2.0 with ST-Sim 4.5.4. The accounting is done in this package; it no longer depends on `strategicc`.
 
 ## What it produces
 
@@ -21,7 +17,7 @@ Version 1.0.4. It is written for **SyncroSim 3.1.14+ and ST-Sim 4.5.4** and has 
 | Monetary Supply | Monetary ecosystem service supply, per year | physical supply x price |
 | Monetary Asset Account | Monetary ecosystem asset account (Table 10.1 / AI.11, NPV of service flows) | extent account + monetary supply |
 | Ecosystem Value by Year | Service value and asset value (NPV) per ecosystem type and year, for the Charts tab | monetary supply |
-| Value Maps | GeoTIFFs of service value per area unit per year and asset value per area unit, at the closing year of each period, for the Maps tab | ST-Sim state-class maps (`stsim_OutputSpatialState`) + ecosystem value by year |
+| Value Maps | GeoTIFFs of service value per area unit per year and asset value per area unit, at every accounting period boundary (opening and closing years; with one period per year, every year), for the Maps tab | ST-Sim state-class maps (`stsim_OutputSpatialState`) + ecosystem value by year |
 | SEEA-Sim Workbook | Excel workbook with the accounts in the UN table layout (sub-headers, ecosystem types as columns, totals, change-matrix margins) | all of the above |
 | Reconciliation Checks | none (quality control) | all of the above |
 
@@ -33,7 +29,7 @@ All outputs are per iteration. Accounts are reported per accounting period, opti
 
 ## Install
 
-1. In SyncroSim Studio: **File > Local Packages > Install from File**, and choose `stsimseea-1-0-4.ssimpkg` (from the release, or build it with `python build_ssimpkg.py`, which writes it to `dist/`).
+1. In SyncroSim Studio: **File > Local Packages > Install from File**, and choose `stsimseea-1-0-5.ssimpkg` (from the release, or build it with `python build_ssimpkg.py`, which writes it to `dist/`).
 2. The transformer runs in its own conda environment, `stsimseea.yml` (pandas, numpy, pysyncrosim, rasterio, openpyxl). Turn on conda in **File > Settings > Conda** if it isn't already, and turn on **Use conda** in the library (**Library properties > System > Options > General**). Without it the accounts are still made, but not the workbook or the value maps.
 3. In the library, add `stsimseea` to the library's packages.
 
@@ -41,10 +37,10 @@ All outputs are per iteration. Accounts are reported per accounting period, opti
 
 1. Scenario **Pipeline**: stage 1 `stsim_Runtime`, stage 2 `stsimseea_Main`.
 2. ST-Sim output options the accounts need:
-   - **Tabular > State classes**: on, every timestep (at least the opening and closing year of each period and the year after each opening).
+   - **Tabular > State classes**: on, every timestep (at least the opening and closing year of each period and the year after each of them).
    - **Tabular > Transitions by state class**: on, every **1** timestep. The extent account is built from it; the transformer stops with a message if it's off.
    - **Stock-Flow > Summary stocks and flows**: on, every timestep, with From/To stock types and state classes not omitted (only needed for the carbon accounts and stock- or flow-based services).
-   - **Spatial > State classes**: on at the closing year of each accounting period, only needed for the value maps.
+   - **Spatial > State classes**: on at every opening and closing year of the accounting periods (or every timestep), only needed for the value maps.
 3. Fill in the SEEA-Sim datasheets (below) and run.
 
 ## Inputs
@@ -72,7 +68,7 @@ All outputs are per iteration. Accounts are reported per accounting period, opti
 - **Change matrix.** Off-diagonal cells are gross transitions over the period's timesteps; the diagonal is opening area minus all that left. Rows sum to opening and columns to closing extent. A cell that changes more than once (A to B to A) is counted in every move, so this is a gross-flow matrix, not a map-to-map comparison. For the validation maps (2020, 2022), compare spatial outputs separately.
 - **Carbon.** Each stock type gets the role of its group (from `stsim_StockTypeGroupMembership`). Flows into pools from the atmosphere are sequestration; pool-to-atmosphere flows are emissions, split into conversion/disturbance (flows with a transition type) and respiration/decomposition (ongoing flows); pool to water is export; pool to burial is long-term burial; pool to pool is an internal transfer. Flows are attributed to the class they came from. Stock that moves with converted cells appears as *Change from ecosystem conversion*; it cancels over all classes, which the checks confirm.
 - **Services.** Supply starts in the run's second timestep (the first is the initial condition and has no flows).
-- **Asset account** (SEEA EA ch. 10 and Annex 10.1). For each class and service, value = P x u x a: area a, supply per area unit u, and P = price x annuity(r, L), i.e. current flows are assumed to continue for the asset life. Opening uses the period's first-year supply per area at opening-year prices; closing uses closing-year supply and prices. The change is split exactly into area, volume and price effects with the symmetric weights of Annex 10.1. The area effect goes to conversions (additions, reductions), catastrophic losses and unexplained change, following the extent account. The volume effect goes to enhancement, degradation or upward/downward reappraisals, using the condition change (no condition data: gains are enhancement, losses degradation). The price effect is revaluation.
+- **Asset account** (SEEA EA ch. 10 and Annex 10.1). For each class and service, value = P x u x a: area a, supply per area unit u, and P = price x annuity(r, L), i.e. current flows are assumed to continue for the asset life. As in Annex 10.1 (V_t sums flows from year t+1), the value at a date uses the supply per area expected in the next year: opening uses year o+1 supply per area at year o prices, closing uses year c+1 supply per area at year c prices, so each closing equals the next period's opening. Run the model one year past the last closing year; otherwise that closing falls back to year c supply (a message is logged). The change is split exactly into area, volume and price effects with the symmetric weights of Annex 10.1. The area effect goes to conversions (additions, reductions), catastrophic losses and unexplained change, following the extent account. The volume effect goes to enhancement, degradation or upward/downward reappraisals, using the condition change (no condition data: gains are enhancement, losses degradation). The price effect is revaluation.
 
 ## Checked against the UN SEEALand example
 
@@ -103,6 +99,16 @@ examples/demak/        worked example: input tables for the JEM Demak model + lo
 ```
 
 Run the tests with `python -m pytest tests -q`.
+
+## Yearly accounts
+
+Every account is compiled per accounting period. For yearly accounts, enter one period per year in **Accounting Periods** (e.g. 2022-2023, 2023-2024, ...); the value maps then follow, one per year. Asset value maps and the Ecosystem Value by Year table use the same rule as the asset account (supply per area of the next year at this year's prices), so the asset value of a year equals the closing of the period ending there and the opening of the period starting there. The service value map of the first year, which has no flows of its own, uses the next year's.
+
+## Changes in 1.0.5
+
+- Closing values follow SEEA EA Annex 10.1: they use the supply per area of year c+1 (as openings use o+1), so a period's closing equals the next period's opening. Before, closings used year c supply and differed slightly from the next opening. Run one year past the last closing year to use this for the final closing.
+- Ecosystem Value by Year (and the asset value maps) use the same rule, so they match the asset account's opening and closing values; the service value of the first simulated year is left empty (no flows).
+- Value maps at every accounting period boundary (opening and closing years) instead of closing years only, so yearly periods give yearly maps and the first opening year is mapped too. No schema change: libraries made with 1.0.4 keep working.
 
 ## Changes in 1.0.4
 

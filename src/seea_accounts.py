@@ -663,10 +663,14 @@ def asset_account(comp, state, supply, prices_tbl, valuation, by_stratum=False, 
       u = annual supply per area unit (expected flow intensity),
       P = price x annuity(r, L), i.e. today's flow is assumed to continue for
           the asset life.
-    Opening: a = opening area, u = supply per area in the period's first year
-    (o+1), price of year o. Closing: closing area, supply per area in year c,
-    price of year c. If a class has no area in one of those years, the other
-    year's u is used.
+    Both ends are valued as SEEA EA Annex 10.1 does: the value at a date t counts
+    the flows expected from year t+1 (V_t = sum over j = t+1.. ), so a closing value
+    equals the next period's opening value.
+    Opening: a = opening area, u = supply per area in year o+1, price of year o.
+    Closing: a = closing area, u = supply per area in year c+1, price of year c.
+    If the run ends at c (no year c+1), or a class has no area in c+1, the flow of
+    year c is used for the closing (logged). If a class has no area in one of the
+    two years, the other year's u is used.
 
     The change P1u1a1 - P0u0a0 is split exactly into area, volume and price
     effects with the symmetric weights of SEEA EA Annex 10.1:
@@ -711,11 +715,17 @@ def asset_account(comp, state, supply, prices_tbl, valuation, by_stratum=False, 
     q = q[q.ServiceId.isin(set(prices_tbl.ServiceId))]
 
     out = []
+    have_years = set(int(t) for t in q.Timestep.unique())
     for (o, c), comp_p in comp.groupby(PERIOD):
         o, c = int(o), int(c)
-        t0, t1 = o + 1, c
-        u0 = q[q.Timestep == t0].set_index(keys + ["ServiceId"])["PerArea"]
-        u1 = q[q.Timestep == t1].set_index(keys + ["ServiceId"])["PerArea"]
+        u0 = q[q.Timestep == o + 1].set_index(keys + ["ServiceId"])["PerArea"]
+        u1_next = q[q.Timestep == c + 1].set_index(keys + ["ServiceId"])["PerArea"]
+        u1_same = q[q.Timestep == c].set_index(keys + ["ServiceId"])["PerArea"]
+        if (c + 1) not in have_years:
+            _log(log, f"SEEA-Sim: no year {c + 1} in the run; the closing value at {c} uses "
+                      f"the flows of {c}. Run to {c + 1} for a closing that equals the next "
+                      "opening (SEEA EA Annex 10.1).")
+        u1 = u1_next.combine_first(u1_same)
         s = pd.concat([u0.rename("u0"), u1.rename("u1")], axis=1)
         s["u0"] = s["u0"].fillna(s["u1"])
         s["u1"] = s["u1"].fillna(s["u0"])
@@ -764,35 +774,55 @@ def asset_account(comp, state, supply, prices_tbl, valuation, by_stratum=False, 
 
 def annual_values(state, supply, prices_tbl, valuation, by_stratum=False, log=None):
     """
-    Per (Iteration, Timestep, StratumId, StateClassId), for every year with supply:
-      ServiceValue = sum over services of supply x price       (currency per year)
-      AssetValue   = ServiceValue x annuity(r, L) of the class  (currency)
+    Per (Iteration, Timestep, StratumId, StateClassId):
+      ServiceValue = sum over services of supply x price in the year  (currency per year;
+                     empty in the first simulated year, which has no flows)
+      AssetValue   = NPV at the date t, valued as the asset account does: supply per
+                     area expected in year t+1 x price of year t x annuity(r, L) x area
+                     at t (flows of year t if there is no year t+1 for the class)
       Area, ServiceValuePerArea, AssetValuePerArea (per area unit).
-    AssetValue is the same NPV the asset account uses at its opening and closing,
-    computed for every year, for charts and maps.
+    AssetValue at a period's opening and closing years equals the asset account's
+    opening and closing values.
     """
     if supply is None or prices_tbl is None or prices_tbl.empty:
         return None
+    keys = ["Iteration", "Timestep", "StratumId", "StateClassId"]
     v = supply.merge(prices_tbl, on=["ServiceId", "Timestep"], how="inner")
     if v.empty:
         return None
     v["Value"] = v["Amount"] * v["Price"]
-    keys = ["Iteration", "Timestep", "StratumId", "StateClassId"]
-    out = v.groupby(keys, as_index=False)["Value"].sum().rename(columns={"Value": "ServiceValue"})
+    serv = v.groupby(keys, as_index=False)["Value"].sum().rename(columns={"Value": "ServiceValue"})
+
     af = {}
     if valuation is not None and not valuation.empty:
         default = valuation[valuation["StateClassId"].isna()]
-        for cls in out.StateClassId.unique():
+        classes = set(supply.StateClassId.unique())
+        for cls in classes:
             row = valuation[valuation["StateClassId"] == cls]
             row = row if not row.empty else default
             if not row.empty:
                 af[cls] = annuity_factor(float(row.iloc[0].DiscountRate), int(row.iloc[0].AssetLifeYears))
-    out["AssetValue"] = out["ServiceValue"] * out["StateClassId"].map(af).fillna(0.0)
+
     st = _prep_state(state, by_stratum).rename(columns={"Amount": "Area"})
-    out = out.merge(st, on=keys, how="left")
-    out["ServiceValuePerArea"] = np.where(out.Area > 0, out.ServiceValue / out.Area, 0.0)
-    out["AssetValuePerArea"] = np.where(out.Area > 0, out.AssetValue / out.Area, 0.0)
-    return out
+    q = supply[supply.ServiceId.isin(set(prices_tbl.ServiceId))].merge(st, on=keys, how="left")
+    q["PerArea"] = np.where(q["Area"] > 0, q["Amount"] / q["Area"], np.nan)
+    idx = keys + ["ServiceId"]
+    cur = q.set_index(idx)["PerArea"].dropna()
+    nxt = q.assign(Timestep=q.Timestep - 1).set_index(idx)["PerArea"].dropna()
+    u = nxt.combine_first(cur).rename("u").reset_index()
+    u = u.merge(prices_tbl[["ServiceId", "Timestep", "Price"]], on=["ServiceId", "Timestep"], how="inner")
+    u["APA"] = u["u"] * u["Price"] * u["StateClassId"].map(af).fillna(0.0)
+    apa = u.groupby(keys, as_index=False)["APA"].sum().rename(columns={"APA": "AssetValuePerArea"})
+
+    out = st[st.Area > 0].merge(serv, on=keys, how="outer").merge(apa, on=keys, how="left")
+    out = out[out.Timestep.isin(set(apa.Timestep) | set(serv.Timestep))]
+    out["Area"] = out["Area"].fillna(0.0)
+    out["AssetValuePerArea"] = out["AssetValuePerArea"].fillna(0.0)
+    out["AssetValue"] = out["AssetValuePerArea"] * out["Area"]
+    out["ServiceValuePerArea"] = np.where(out.Area > 0, out.ServiceValue / out.Area, np.nan)
+    out.loc[out.ServiceValue.isna(), "ServiceValuePerArea"] = np.nan
+    return out[keys + ["ServiceValue", "AssetValue", "Area", "ServiceValuePerArea",
+                       "AssetValuePerArea"]].sort_values(keys).reset_index(drop=True)
 
 
 def account_checks(table: pd.DataFrame, account: str, opening: str, closing: str,

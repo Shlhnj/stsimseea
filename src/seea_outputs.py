@@ -376,6 +376,43 @@ def class_codes(stateclass: pd.DataFrame) -> dict:
     return {int(r[idcol]): r["Name"] for _, r in d.iterrows()}
 
 
+def map_years(periods) -> list:
+    """Years to map: every accounting period boundary (opening and closing years).
+    With one period per year this gives a map for every year."""
+    return sorted({int(y) for p in periods for y in p})
+
+
+def per_area_for_years(per_area: pd.DataFrame, years) -> pd.DataFrame:
+    """Per-area values for each map year, column by column. AssetValuePerArea is the
+    value at that date (flows expected from the next year). ServiceValuePerArea is the
+    flow in that year; the first simulated year has none, so it takes the next year
+    that has one, as the asset account does for its opening value."""
+    keys = ["Iteration", "StateClassId"]
+    parts = []
+    for y in years:
+        cols = {}
+        for col in ("ServiceValuePerArea", "AssetValuePerArea"):
+            have = sorted(int(t) for t in per_area.loc[per_area[col].notna(), "Timestep"].unique())
+            src = y if y in have else next((t for t in have if t > y), None)
+            if src is not None:
+                cols[col] = per_area.loc[(per_area.Timestep == src) & per_area[col].notna(),
+                                         keys + [col]]
+        if not cols:
+            continue
+        part = None
+        for d in cols.values():
+            part = d if part is None else part.merge(d, on=keys, how="outer")
+        part = part.assign(Timestep=y)
+        for col in ("ServiceValuePerArea", "AssetValuePerArea"):
+            if col not in part:
+                part[col] = 0.0
+        parts.append(part.fillna(0.0))
+    if not parts:
+        return per_area.iloc[0:0]
+    return pd.concat(parts, ignore_index=True)[["Iteration", "Timestep", "StateClassId",
+                                                "ServiceValuePerArea", "AssetValuePerArea"]]
+
+
 def write_value_maps(state_maps: pd.DataFrame, codes: dict, per_area: pd.DataFrame,
                      timesteps, out_dir: str, log=None):
     """

@@ -65,3 +65,21 @@ def test_value_maps_add_up(tmp_path):
         nod = src.nodata
     assert np.isclose(a[a != nod].sum(), 20 + 2 * 300 + 2 * 100)
     assert a[1, 2] == nod  # nodata cell stays nodata
+
+
+def test_map_years_are_period_boundaries():
+    assert so.map_years([(2022, 2026), (2026, 2031)]) == [2022, 2026, 2031]
+    yearly = [(y, y + 1) for y in range(2022, 2031)]
+    assert so.map_years(yearly) == list(range(2022, 2032))
+
+
+def test_opening_year_takes_next_year_values():
+    pa = pd.DataFrame({"Iteration": 1, "Timestep": [2023, 2023, 2026],
+                       "StateClassId": ["Mangrove:All", "Ponds:All", "Mangrove:All"],
+                       "ServiceValuePerArea": [10.0, 5.0, 12.0], "AssetValuePerArea": [300.0, 100.0, 360.0]})
+    out = so.per_area_for_years(pa, [2022, 2026])
+    first = out[out.Timestep == 2022].set_index("StateClassId")
+    assert first.loc["Mangrove:All", "AssetValuePerArea"] == 300.0   # from 2023
+    assert first.loc["Ponds:All", "AssetValuePerArea"] == 100.0
+    assert out[out.Timestep == 2026]["AssetValuePerArea"].tolist() == [360.0]
+    assert so.per_area_for_years(pa, [2031]).empty                    # no later values: no map

@@ -202,6 +202,46 @@ def test_missing_timestep_message():
     raise AssertionError
 
 
+def _asset_values(periods):
+    sup = sa.service_supply(STATE, STOCK, FLOW, RULES, False)
+    ptbl = sa.price_table(PRICES, sup.ServiceId.unique(),
+                          sorted(set(sup.Timestep) | {o for o, _ in periods}))
+    comp = sa.extent_components(STATE, TRANS, periods, TTC, False)
+    logs = []
+    acc = sa.asset_account(comp, STATE, sup, ptbl, VAL, False, log=logs.append)
+    tot = acc.groupby(["Iteration", "OpeningTimestep", "ClosingTimestep", "Entry"]).Amount.sum()
+    return sup, ptbl, tot, logs
+
+
+def test_closing_equals_next_opening():
+    # SEEA EA Annex 10.1: the value at a date counts flows from the next year, so the
+    # closing of one period is the opening of the next
+    yearly = [(y, y + 1) for y in range(2015, 2022)]
+    _, _, tot, logs = _asset_values(yearly)
+    for it in (1, 2):
+        for o, c in yearly[:-1]:
+            close = tot[(it, o, c, "Closing value")]
+            nxt = tot[(it, c, c + 1, "Opening value")]
+            _close(close, nxt)
+    # the last closing (2022) has no 2023 in the run: falls back to 2022 flows, logged
+    assert any("no year 2023" in m for m in logs)
+    assert not any("no year 2021" in m for m in logs)
+
+
+def test_annual_asset_value_matches_account():
+    periods = [(2015, 2018), (2018, 2022)]
+    sup, ptbl, tot, _ = _asset_values(periods)
+    ann = sa.annual_values(STATE, sup, ptbl, VAL, False)
+    by_year = ann.groupby(["Iteration", "Timestep"]).AssetValue.sum()
+    for it in (1, 2):
+        _close(by_year[(it, 2015)], tot[(it, 2015, 2018, "Opening value")])
+        _close(by_year[(it, 2018)], tot[(it, 2015, 2018, "Closing value")])
+        _close(by_year[(it, 2018)], tot[(it, 2018, 2022, "Opening value")])
+        _close(by_year[(it, 2022)], tot[(it, 2018, 2022, "Closing value")])
+    # first simulated year has no flows of its own
+    assert ann[ann.Timestep == 2015].ServiceValue.isna().all()
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):
