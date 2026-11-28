@@ -1,5 +1,10 @@
 # SEEA-Sim (`stsimseea`)
 
+[![Static Badge](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.21097277-purple)](https://doi.org/10.5281/zenodo.24619871)
+![GitHub Release](https://img.shields.io/github/v/release/Shlhnj/stsimseea?color=fff000)
+![GitHub License](https://img.shields.io/github/license/Shlhnj/stsimseea)
+![GitHub repo size](https://img.shields.io/github/repo-size/Shlhnj/stsimseea)
+
 A SyncroSim add-on that turns ST-Sim output into SEEA Ecosystem Accounting (UN 2024) tables. It runs after ST-Sim in the same scenario, so every scenario and iteration gets its own set of accounts.
 
 Version 1.0.5. It is written for **SyncroSim 3.1.14+ and ST-Sim 4.5.4** and has been run in SyncroSim Studio 3.2.0 with ST-Sim 4.5.4. The accounting is done in this package; it no longer depends on `strategicc`.
