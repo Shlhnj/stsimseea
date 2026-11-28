@@ -1,6 +1,6 @@
 # SEEA-Sim (`stsimseea`)
 
-![GitHub Release](https://img.shields.io/github/v/release/Shlhnj/stsimseea)
+![GitHub Release](https://img.shields.io/github/v/release/Shlhnj/stsimseea?color=fff000)
 ![GitHub License](https://img.shields.io/github/license/Shlhnj/stsimseea)
 ![GitHub repo size](https://img.shields.io/github/repo-size/Shlhnj/stsimseea)
 
